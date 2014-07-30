@@ -5,19 +5,22 @@ import sys
 import threading
 import time
 
-from clientmedia import *
+import pygame
+from pygame.locals import KEYDOWN
+
+from clientmedia import sounds, voice
 import clientgame
-import clientmenu
 import definitions
 import clientworld
 import config
 from constants import *
 from mapfile import *
+from msgs import nb2msg
 from paths import *
 import random
 import res
 import tts
-from version import *
+from version import VERSION, compatibility_version, COMPATIBILITY_VERSION
 from world import *
 from worldclient import *
 
@@ -83,8 +86,7 @@ class _Game(object):
             self.world.clean()
         else:
             voice.alert([1029]) # hostile sound
-            if tts.is_available:
-                voice.alert([self.world.map_error])
+            voice.alert([self.world.map_error])
         if self.record_replay:
             self._replay_file.close()
 
@@ -131,7 +133,7 @@ class MultiplayerGame(_MultiplayerGame):
     def _countdown(self):
         voice.important([4062]) # "the game starts in 5 seconds"
         for n in [5, 4, 3, 2, 1, 0]:
-            voice.item(nombre(n))
+            voice.item(nb2msg(n))
             time.sleep(1)
         pygame.event.clear(KEYDOWN)
 

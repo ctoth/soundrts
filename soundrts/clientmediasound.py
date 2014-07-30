@@ -1,18 +1,15 @@
 import math
+import os
 import random
 import re
 import string
-import sys
 import time
 
 import pygame
-from pygame.locals import *
 
-from lib.log import *
-
-from clientmediascreen import FONT
+from clientmedia import screen_subtitle_set
 import encoding
-from number import *
+from lib.log import warning
 import res
 import tts
 
@@ -50,21 +47,14 @@ def translate_and_collapse_lns(lns, remove_sounds=False):
     return result
 
 def display(lns):
-    from commun import VERSION
+    from version import VERSION
     if VERSION[-4:] != "-dev": return # don't show ugly orthography
-    import g
     txt = translate_and_collapse_lns(lns, remove_sounds=True)
     if txt:
         txt = txt[0]
     else:
         txt = ""
-    if g.game:
-        g.subtitle = txt
-    else:
-        ren = FONT.render(txt, 1, (200, 200, 200))
-        g.screen.fill((0, 0, 0))
-        g.screen.blit(ren, (0, 0))
-        pygame.display.flip()
+    screen_subtitle_set(txt)
 
 TXT_FILE = "ui/tts"
 
@@ -184,7 +174,7 @@ class SoundManager(object):
             s.stop()
 
 
-psounds = SoundManager() # psounds = positionned sounds (3D)
+psounds = SoundManager() # psounds = positional sounds (3D)
 
 
 class _SoundSource(object):
@@ -221,8 +211,7 @@ class _SoundSource(object):
                self.channel.get_sound() == self.sound
 
     def _volume_too_low(self):
-        return max(psounds.get_stereo_volume(self)) < .02 # volume less than
-                                                          # 2 per cent
+        return max(psounds.get_stereo_volume(self)) < .02
 
     def _update_volume(self, force=False):
         if self._volume_too_low():
@@ -295,31 +284,6 @@ class VoiceChannel(object):
     def __init__(self):
         self.c = pygame.mixer.Channel(0)
 
-    def _classic_play(self, lns, lv, rv):
-        def translate_lns(lns):
-            result = []
-            for s in lns:
-                s = "%s" % s
-                if sounds.get_sound(s):
-                    result.append(s)
-                else:
-                    if re.match("^[0-9]+$", s) is not None:
-                        if int(s) >= 1000000:
-                            result.extend(nb_to_msg(int(s) - 1000000))
-                            continue
-                        else:
-                            warning("this sound may be missing: %s", s)
-                    for k in self._spell(s):
-                        result.append(k)
-            return result
-        self.stop()
-        for s in translate_lns(lns):
-            snd = sounds.get_sound(s)
-            if snd:
-                self._queue.append([snd, lv, rv])
-        self.update()
-        self._starting_time = time.time()
-        
     def _tts_play(self, lns, lv, rv):
         self.stop()
         if (lv, rv) != (DEFAULT_VOLUME, DEFAULT_VOLUME):
@@ -331,10 +295,7 @@ class VoiceChannel(object):
         self._starting_time = time.time()
 
     def play(self, lns, lv, rv):
-        if tts.is_available:
-            self._tts_play(lns, lv, rv)
-        else:
-            self._classic_play(lns, lv, rv)
+        self._tts_play(lns, lv, rv)
         display(lns)
 
     def is_almost_done(self):
@@ -386,16 +347,6 @@ class VoiceChannel(object):
 #            ls.append(9998)
         return ls
 
-
-def sound_pre_init(mixer_freq):
-    if mixer_freq == 44100 and sys.platform == "win32":
-        # increase buffer to avoid scratchy sounds
-        pygame.mixer.pre_init(mixer_freq, -16, 2, 1024 * 3)
-    else:
-        pygame.mixer.pre_init(mixer_freq)
-
-def sound_init():
-    pygame.mixer.set_reserved(1)
 
 def sound_stop(stop_voice_too=True):
     psounds.stop()
@@ -456,11 +407,11 @@ class SoundCache(object):
 
     def _load(self, path, d):
         if os.path.isdir(path):
-            for root, dirs, files in os.walk(path):
+            for root, _, files in os.walk(path):
                 for n in files:
                     if n[-4:] == ".ogg":
                         k = n[:-4]
-                        if tts.is_available and self.is_text(k) and \
+                        if self.is_text(k) and \
                            k not in ["9998", "9999"]:
                             continue
                         if k not in d:
@@ -504,26 +455,16 @@ class SoundCache(object):
             voice.important([name]) # each element is interruptible
 
 
-def _incr_value(v, incr):
-    return min(1, max(0, v + .1 * incr))
-
 volume = .5
 
 def get_volume():
     return volume
 
-def incr_volume(incr):
+def set_volume(v):
     global volume
-    volume = _incr_value(volume, incr)
+    volume = v
 
 voice_volume = 1.0
-
-def get_voice_volume():
-    return voice_volume
-
-def incr_voice_volume(incr):
-    global voice_volume
-    voice_volume = _incr_value(voice_volume, incr)
 
 def _read_txt(root=None):
     path = TXT_FILE
@@ -550,5 +491,10 @@ def _read_txt(root=None):
     result["9998"] = u","
     result["9999"] = u"."
     return result
+
+def init_sound():
+    pygame.mixer.pre_init(44100, -16, 2, 1024)
+    pygame.init()
+    pygame.mixer.set_reserved(1)
 
 sounds = SoundCache()

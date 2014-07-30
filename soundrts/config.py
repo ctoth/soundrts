@@ -11,6 +11,14 @@ from lib.log import *
 from paths import *
 
 
+login = "player"
+num_channels = 16
+speed = 1
+srapi = 1
+srapi_wait = .1
+_mods = ""
+mods = ""
+
 def save():
     c = ConfigParser.SafeConfigParser()
     c.add_section("general")
@@ -19,7 +27,6 @@ def save():
     c.set("general", "num_channels", repr(num_channels))
     c.set("general", "speed", repr(speed))
     c.add_section("tts")
-    c.set("tts", "recorded_speech", repr(recorded_speech))
     if platform.system() == "Windows":
         c.set("tts", "srapi", repr(srapi))
         c.set("tts", "srapi_wait", repr(srapi_wait))
@@ -27,7 +34,7 @@ def save():
 
 def load():
     global login, num_channels, speed, _mods
-    global recorded_speech, srapi, srapi_wait
+    global srapi, srapi_wait
     error = False
     new_file = False
     try:
@@ -44,38 +51,27 @@ def load():
         if re.match("^[a-zA-Z0-9]{1,20}$", login) == None:
             raise ValueError
     except:
-        login = "player"
         error = True
     try:
         num_channels = c.getint("general", "num_channels")
     except:
-        num_channels = 16
         error = True
     try:
         speed = c.getint("general", "speed")
     except:
-        speed = 1
         error = True
     try:
         _mods = c.get("general", "mods")
     except:
-        _mods = ""
-        error = True
-    try:
-        recorded_speech = c.getint("tts", "recorded_speech")
-    except:
-        recorded_speech = 0
         error = True
     if platform.system() == "Windows":
         try:
             srapi_wait = c.getfloat("tts", "srapi_wait")
         except:
-            srapi_wait = .1
             error = True
         try:
             srapi = c.getint("tts", "srapi")
         except:
-            srapi = 1
             error = True
     if error and not new_file:
         warning("rewriting SoundRTS.ini...")
@@ -87,9 +83,12 @@ def load():
             warning("could not make a copy of old config file")
     save()
 
+port = 2500
+record_games = False
+
 def _parse_options():
     global options, port, record_games
-    default_port = 2500
+    default_port = port
     parser = optparse.OptionParser()
     parser.add_option("-m", "--mods", type="string")
     parser.add_option("-p", type="int", help=optparse.SUPPRESS_HELP)
@@ -113,4 +112,3 @@ if options.mods is not None:
     mods = options.mods
 else:
     mods = _mods
-mixer_freq = 44100 # 22050 # 16000 # 11025

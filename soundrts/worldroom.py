@@ -1,6 +1,9 @@
+import string
+
+from constants import COLLISION_RADIUS
 from lib.log import *
-from commun import *
-import commun
+from nofloat import int_distance, int_angle, int_cos_1000, int_sin_1000
+from msgs import nb2msg
 from worldresource import Meadow
 
 from priodict import priorityDictionary
@@ -36,7 +39,7 @@ class Square(object):
         world.squares.append(self)
         world.objects[self.id] = self
         self.place = world
-        self.title = [5000 + col] + nombre(row + 1)
+        self.title = [5000 + col] + nb2msg(row + 1)
         self.objects = []
         self.exits = []
         self.xmin = col * width
@@ -192,11 +195,13 @@ class Square(object):
         
     def balance(self, player):
         self.update_menace()
-        balance = self.menace[player]
+        balance = 0
         for p in self.world.players:
             if p.is_an_enemy(player):
                 balance -= self.menace[p]
-        return  balance
+            elif p in player.allied:
+                balance += self.menace[p]
+        return balance
 
     def north_side(self):
         return self, self.x, self.ymax, -90

@@ -160,6 +160,7 @@ class Rules(_Definitions):
                     "universal_notification",
                     "presence",
                     "is_ballistic",
+                    "is_teleportable",
                     )
     precision_properties = _precision_properties_extended
     int_list_properties = ("storable_resource_types",)
@@ -216,6 +217,8 @@ def _read_ai_to_dict(s, d):
             d[name] += [line]
         else:
             warning("'def <AI_name>' is missing (check ai.txt)")
+
+_ai = {}
 
 def load_ai(*strings):
     global _ai

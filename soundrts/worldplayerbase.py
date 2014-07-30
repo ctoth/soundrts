@@ -1,5 +1,3 @@
-import worldrandom
-
 import copy
 import inspect
 import re
@@ -7,16 +5,15 @@ import string
 import sys
 import time
 
+import config
 from constants import *
 import group
 from lib.log import *
-from worldunit import *
-from servermsg import *
+from msgs import encode_msg
 import stats
-
-from commun import *
-
-import config
+import worldrandom
+from worldunit import *
+from worldupgrade import Upgrade
 
 
 class Objective(object):
@@ -520,23 +517,23 @@ class Player(object):
         m = int(t / 60)
         s = int(t - m * 60)
         msgs = []
-        msgs.append(victory_or_defeat + [107] + nombre(m) + [65]
-                    + nombre(s) + [66]) # in ... minutes and ... seconds
-        msgs.append(nombre(self.nb_units_produced) + [130, 4023, 9998]
-                    + nombre(self.nb_units_lost) + [146, 9998]
-                    + nombre(self.nb_units_killed) + [145])
-        msgs.append(nombre(self.nb_buildings_produced) + [4025, 4022, 9998]
-                    + nombre(self.nb_buildings_lost) + [146, 9998]
-                    + nombre(self.nb_buildings_killed) + [145])
+        msgs.append(victory_or_defeat + [107] + nb2msg(m) + [65]
+                    + nb2msg(s) + [66]) # in ... minutes and ... seconds
+        msgs.append(nb2msg(self.nb_units_produced) + [130, 4023, 9998]
+                    + nb2msg(self.nb_units_lost) + [146, 9998]
+                    + nb2msg(self.nb_units_killed) + [145])
+        msgs.append(nb2msg(self.nb_buildings_produced) + [4025, 4022, 9998]
+                    + nb2msg(self.nb_buildings_lost) + [146, 9998]
+                    + nb2msg(self.nb_buildings_killed) + [145])
         res_msg = []
         for i, _ in enumerate(self.resources):
-            res_msg += nombre(self.gathered_resources[i] / PRECISION) \
+            res_msg += nb2msg(self.gathered_resources[i] / PRECISION) \
                        + style.get("parameters", "resource_%s_title" % i) \
                        + [4256, 9998] \
-                       + nombre(self.consumed_resources()[i] / PRECISION) \
+                       + nb2msg(self.consumed_resources()[i] / PRECISION) \
                        + [4024, 9999]
         msgs.append(res_msg[:-1])
-        msgs.append([4026] + nombre(self._get_score()) + [2008])
+        msgs.append([4026] + nb2msg(self._get_score()) + [2008])
         return msgs
 
     score_msgs = ()
@@ -585,7 +582,7 @@ class Player(object):
         self.defeat()
 
     def lang_cut_scene(self, args):
-        Sequence(args).send(self.client)
+        self.push("sequence %s\n" % " ".join(args))
 
     def lang_add_objective(self, args):
         n = args[0]

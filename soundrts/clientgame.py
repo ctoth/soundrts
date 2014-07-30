@@ -1,5 +1,6 @@
 # -*- coding: cp1252 -*-
 
+import math
 import os
 import os.path
 import Queue
@@ -12,16 +13,14 @@ from pygame.locals import *
 from clienthelp import help_msg
 from clientmedia import *
 import clientmenu
-from definitions import *
 from clientworld import *
-import commun
+import config
 from constants import *
+from definitions import *
 import group
 from lib.log import *
+from msgs import nb2msg, eval_msg_and_volume
 from worldunit import *
-
-import config
-import g
 
 
 my_cursors = {}
@@ -106,7 +105,7 @@ class GameInterface(object):
         self.grid_view = GridView(self)
         self.set_self_as_listener()
         voice.silent_flush()
-        self.set_screen()
+#        set_screen()
         self._srv_queue = Queue.Queue()
         self.scouted_squares = ()
         self.scouted_before_squares = ()
@@ -161,7 +160,7 @@ class GameInterface(object):
                 l.append([p.number, p.name])
         l.sort()
         for n, name in l:
-            voice.info(nombre(n) + [9998, name, 9999])
+            voice.info(nb2msg(n) + [9998, name, 9999])
 
     def srv_msg(self, s):
         voice.info(*eval_msg_and_volume(s))
@@ -213,7 +212,7 @@ class GameInterface(object):
             else:
                 # visible if in front of you (190 degrees field)
                 a = angle(self.x, self.y, o.x, o.y, self.o)
-                return math.cos(a) > cos_deg(95)
+                return math.cos(a) > math.cos(math.radians(95))
         else:
             return True
 
@@ -244,7 +243,7 @@ class GameInterface(object):
     def get_description_of(self, o):
         if self.immersion:
             vg, vd = vision_stereo(self.x, self.y, o.x, o.y, self.o)
-            return o.title + [54] + nombre(self.distance(o)) + [55] \
+            return o.title + [54] + nb2msg(self.distance(o)) + [55] \
                    + self.direction(o) + o.description, vg, vd
         else:
             self.o = 90
@@ -307,8 +306,7 @@ class GameInterface(object):
             voice.item([1029]) # hostile sound
         
     def cmd_volume(self, inc=1):
-        inc = int(inc)
-        modify_volume(inc)
+        modify_volume(int(inc))
 
     def cmd_history_previous(self):
         voice.previous()
@@ -327,15 +325,15 @@ class GameInterface(object):
             ([4103], self.gm_slow_speed),
             ([4104], self.gm_normal_speed),
             ([4105], self.gm_fast_speed),
-            ([4105] + nombre(4), self.gm_very_fast_speed),
+            ([4105] + nb2msg(4), self.gm_very_fast_speed),
             ])
         if self.can_save():
             menu.append([4112], self.gm_save)
 ##            menu.append([4113], self.gm_restore)
         menu.append([4071], None)
-        g.game = False
+        set_game_mode(False)
         menu.run()
-        g.game = True
+        set_game_mode(True)
 
     already_asked_to_quit = False
     forced_quit = False
@@ -389,12 +387,12 @@ class GameInterface(object):
         if self.talking_clock_enabled:
             nb_minutes = int(self.last_virtual_time / 60)
             if self.last_nb_minutes != nb_minutes:
-                voice.important([1003]) # + nombre(nb_minutes) + [65])
+                voice.important([1003]) # + nb2msg(nb_minutes) + [65])
                 self.last_nb_minutes = nb_minutes
 
     def cmd_say_time(self):
         m, s = divmod(int(self.last_virtual_time), 60)
-        voice.item(nombre(m) + [65] + nombre(s) + [66])
+        voice.item(nb2msg(m) + [65] + nb2msg(s) + [66])
 
     _must_play_tick = False
 
@@ -419,19 +417,8 @@ class GameInterface(object):
             tps = 1 / self._average_game_turn_time
             basic_tps = 1 / (VIRTUAL_TIME_INTERVAL / 1000.0)
             relative = tps / basic_tps
-            text = "tps=%.0f" % tps
-            ren = FONT.render(text, True, (200, 200, 200), (0, 0, 0))
-            g.screen.blit(ren, (0, 0))
-            text = "%.1f" % relative
-            ren = FONT.render(text, True, (200, 200, 200), (0, 0, 0))
-            g.screen.blit(ren, (0, 15))
-
-    def display_subtitle(self):
-        if g.subtitle:
-            text = g.subtitle
-            ren = FONT.render(text, True, (200, 200, 200), (0, 0, 0))
-            g.screen.blit(ren, ((g.screen.get_width() - ren.get_width()) / 2,
-                                g.screen.get_height() - ren.get_height()))
+            screen_render("tps=%.0f" % tps, (0, 0))
+            screen_render("%.1f" % relative, (0, 15))
 
     def cmd_toggle_tick(self):
         self._must_play_tick = not self._must_play_tick
@@ -516,7 +503,7 @@ class GameInterface(object):
                             break
 #                    self.execute_keydown_event(e)
                     self.display()
-                elif g.fullscreen:
+                elif get_fullscreen():
                     if e.type == MOUSEMOTION:
                         square = self.grid_view.square_from_mousepos(e.pos)
                         target = self.grid_view.object_from_mousepos(e.pos)
@@ -592,7 +579,7 @@ class GameInterface(object):
 
     def loop(self):
         from clientserver import ConnectionAbortedError # TODO: remove the cyclic dependencies
-        g.game = True
+        set_game_mode(True)
         pygame.event.clear()
         self.next_update = time.time()
         self.end_loop = False
@@ -611,7 +598,7 @@ class GameInterface(object):
                 raise
             except:
                 exception("error in clientgame loop")
-        g.game = False
+        set_game_mode(False)
 
     mode = None
     indexunite = -1
@@ -864,7 +851,7 @@ class GameInterface(object):
                 result += [23] # "... and ..."
             elif t != types[0]:
                 result += [9998]
-            result += nombre(group.count(t)) + t
+            result += nb2msg(group.count(t)) + t
         return result
 
     def place_summary(self, place, me=True):
@@ -1446,46 +1433,23 @@ class GameInterface(object):
 
     def display(self):
 #        print getattr(self.target, "id", None), getattr(self.place, "id", None), self.mode
-        if g.screen is None:
+        if get_screen() is None:
             return # this might allow some machines to work without any display
-        g.screen.fill((0, 0, 0))
-        if g.fullscreen:
+        get_screen().fill((0, 0, 0))
+        if get_fullscreen():
             self.grid_view.display()
-            g.text_screen.display()
             if self.mouse_select_origin and self.mouse_select_origin != pygame.mouse.get_pos():
                 x, y = self.mouse_select_origin
                 x2, y2 = pygame.mouse.get_pos()
-                pygame.draw.rect(g.screen, (255, 255, 255), (min(x, x2), min(y, y2), abs(x - x2), abs(y - y2)), 1)
+                pygame.draw.rect(get_screen(), (255, 255, 255), (min(x, x2), min(y, y2), abs(x - x2), abs(y - y2)), 1)
         else:
-            self.print_F2_message()
+            screen_render("[Ctrl + F2] display.", (5, 45))
         self.display_tps()
-        self.display_subtitle()
+        screen_render_subtitle()
         pygame.display.flip()
 
     def cmd_fullscreen(self):
-        g.fullscreen = not g.fullscreen
-        self.set_screen()
-        if g.fullscreen:
-            voice.item([4206])
-        else:
-            voice.item([4207])
-
-    def set_screen(self):
-        if g.fullscreen:
-            x, y = get_desktop_screen_mode()
-            window_style = 0 | FULLSCREEN
-        else:
-            x, y = g.DISPLAY_RES
-            window_style = 0
-            pygame.mouse.set_visible(True)
-        try:
-            g.screen = pygame.display.set_mode((x, y), window_style)
-        except:
-            g.screen = pygame.display.set_mode((640, 480))
-
-    def print_F2_message(self):
-        ren = FONT.render("[Ctrl + F2] pour l'affichage.", 1, (200, 200, 200))
-        g.screen.blit(ren, (5, 45))
+        toggle_fullscreen()
 
     # resources
 
@@ -1503,12 +1467,12 @@ class GameInterface(object):
 
     def cmd_resource_status(self, resource_type):
         resource_type = int(resource_type)
-        voice.item(nombre(self.resources[resource_type]) + style.get(
+        voice.item(nb2msg(self.resources[resource_type]) + style.get(
             "parameters", "resource_%s_title" % resource_type))
 
     def cmd_food_status(self):
-        voice.item(nombre(self.available_food, genre="f") + [137, 2011] +
-                   nombre(self.used_food))
+        voice.item(nb2msg(self.available_food, genre="f") + [137, 2011] +
+                   nb2msg(self.used_food))
         # other possibility: available_food + [137,133,2011] + food
 
     def send_msg_if_playing(self, msg, update_type=None):
@@ -1528,7 +1492,7 @@ class GameInterface(object):
             if r != self._previous_resources[i]:
                 self._previous_resources[i] = r
                 if must_be_said(r):
-                    self.send_msg_if_playing(nombre(r) + style.get(
+                    self.send_msg_if_playing(nb2msg(r) + style.get(
                         "parameters", "resource_%s_title" % i),
                         update_type="resource_%s" % i)
         if self.available_food != self._previous_available_food or \
@@ -1537,9 +1501,9 @@ class GameInterface(object):
             self._previous_used_food == self.available_food):
             if 0 <= self.available_food - self.used_food <= \
                self.available_food * .20:
-                self.send_msg_if_playing(nombre(self.available_food, genre="f")
+                self.send_msg_if_playing(nb2msg(self.available_food, genre="f")
                                          + [137, 2011]
-                                         + nombre(self.used_food),
+                                         + nb2msg(self.used_food),
                                          update_type="food")
             self._previous_available_food = self.available_food
             self._previous_used_food = self.used_food

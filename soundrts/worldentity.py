@@ -1,9 +1,9 @@
-import worldrandom
 import sys
 import time
 
+from constants import COLLISION_RADIUS, USE_RANGE_MARGIN
 from definitions import *
-from commun import *
+import worldrandom
 
 
 class NotEnoughSpaceError(Exception): pass
@@ -23,6 +23,7 @@ class Entity(object):
     is_repairable = False
     is_healable = False
     is_undead = False
+    is_teleportable = False
 
     is_a_building_land =False
 

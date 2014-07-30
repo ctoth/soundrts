@@ -10,20 +10,20 @@ import string
 import time
 
 import collision
-from commun import *
+
 import config
 from constants import *
-import g
 from paths import MAPERROR_PATH
 import res
-from servermsg import * # XXXXXXX
 import stats
+from worldability import Ability
 import worldclient
 from worldexit import *
 from worldplayer import *
 import worldrandom
 from worldroom import *
 from worldunit import *
+from worldupgrade import Upgrade
 
 
 GLOBAL_FOOD_LIMIT = 80

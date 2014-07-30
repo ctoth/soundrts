@@ -1,5 +1,5 @@
 from lib import log
-from commun import VERSION_FOR_BUG_REPORTS
+from version import VERSION_FOR_BUG_REPORTS
 from paths import CLIENT_LOG_PATH
 log.set_version(VERSION_FOR_BUG_REPORTS)
 log.add_secure_file_handler(CLIENT_LOG_PATH, "w")
@@ -10,6 +10,7 @@ import locale
 try:
     locale.setlocale(locale.LC_ALL, '')
 except:
+    from lib.log import warning
     warning("couldn't set locale")
 
 import os.path
@@ -28,12 +29,15 @@ from clientmenu import *
 from clientserver import *
 from definitions import style
 from clientversion import *
-from commun import *
 import config
 from game import TrainingGame, ReplayGame
 from multimaps import worlds_multi
+from msgs import nb2msg
 from paths import REPLAYS_PATH
+import res
 from singlemaps import campaigns
+import tts
+from version import COMPATIBILITY_VERSION
 
 
 _ds = open("cfg/default_servers.txt").readlines()
@@ -41,17 +45,6 @@ _ds = [_x.split() for _x in _ds]
 DEFAULT_SERVERS = [" ".join(["0"] + _x[:1] + [COMPATIBILITY_VERSION] + _x[1:]) for _x in _ds]
 SERVERS_LIST_HEADER = "SERVERS_LIST"
 SERVERS_LIST_URL = MAIN_METASERVER_URL + "servers.php?header=%s&include_ports=1" % SERVERS_LIST_HEADER
-
-_s = """MAIN_MENU_TITLE 4029 4030
-MAIN_MENU_SINGLE_PLAYER_LABEL 4031 4032
-MAIN_MENU_MULTIPLAYER_LABEL 4033 4034
-MAIN_MENU_SERVER_LABEL 4035 4036
-MAIN_MENU_OPTIONS_LABEL 4037 4038
-MAIN_MENU_QUIT_LABEL 4041 4042"""
-for line in _s.split("\n"):
-    words = line.split(" ")
-    if re.match("[A-Z_]+$", words[0]):
-        exec("%s = %s" % (words[0], words[1:]))
 
 
 class Application(object):
@@ -81,7 +74,7 @@ class Application(object):
             nb += 1
             if version == COMPATIBILITY_VERSION:
                 menu.append([login, 4073, login], (connect_and_play, ip, port))
-        menu.title = nombre(len(menu.choices)) + [4078] + nombre(nb) + [4079]
+        menu.title = nb2msg(len(menu.choices)) + [4078] + nb2msg(nb) + [4079]
         menu.append([4075, 4076], None)
         menu.run()
 
@@ -227,13 +220,13 @@ class Application(object):
             ([4096, 4097], self.save_config_changes),
             ([4098, 4099], self.cancel_config_changes),
             ])
-        main_menu = Menu(MAIN_MENU_TITLE, [
-            [MAIN_MENU_SINGLE_PLAYER_LABEL, single_player_menu.loop],
-            [MAIN_MENU_MULTIPLAYER_LABEL, self.multiplayer_menu],
-            [MAIN_MENU_SERVER_LABEL, server_menu],
+        main_menu = Menu([4029, 4030], [
+            [[4031, 4032], single_player_menu.loop],
+            [[4033, 4034], self.multiplayer_menu],
+            [[4035, 4036], server_menu],
             [[4315], self.replay_menu],
-            [MAIN_MENU_OPTIONS_LABEL, options_menu.loop],
-            [MAIN_MENU_QUIT_LABEL, END_LOOP],
+            [[4037, 4038], options_menu.loop],
+            [[4041, 4042], END_LOOP],
             ])
         if "connect_localhost" in sys.argv:
             connect_and_play()
@@ -244,7 +237,7 @@ class Application(object):
 def main():
     try:
         try:
-            init_media(config.mixer_freq)
+            init_media()
             revision_checker.start_if_needed()
             Application().main()
         except SystemExit:

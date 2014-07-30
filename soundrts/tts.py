@@ -5,9 +5,7 @@ import config
 from version import VERSION
 
 
-if config.recorded_speech == 1:
-    pass
-elif platform.system() == "Windows":
+if platform.system() == "Windows":
     if config.srapi == 0:
         try:
             import win32compytts as pyTTS
@@ -35,6 +33,7 @@ from lib.log import *
 MINIMAL_PLAYING_TIME = 1 # in seconds
 TTS_TIMEOUT = .1 # in seconds
 
+_tts = None
 _tts_previous_start_time = 0
 
 def warn_if_slow(f):
@@ -84,7 +83,6 @@ def init():
     try:
         _tts = pyTTS.Create()
     except:
-        _tts = None
         is_available = False
     else:
         is_available = True
