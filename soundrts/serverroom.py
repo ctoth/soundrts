@@ -6,6 +6,7 @@ import time
 
 import config
 from constants import *
+from definitions import style
 from lib.log import *
 from msgs import insert_silences, nb2msg
 from paths import TMP_PATH
@@ -282,6 +283,11 @@ class Game(object):
         player = self.players[int(player_index)]
         player.alliance = int(alliance)
         self.broadcast([4284, player.login, 4285] + nb2msg(player.alliance))
+
+    def set_race(self, player_index, race):
+        player = self.players[int(player_index)]
+        player.race = race
+        self.broadcast([player.login, ] + style.get(player.race, 'title'))
 
     def broadcast(self, msg):
         for client in self.players:
