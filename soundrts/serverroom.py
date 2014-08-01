@@ -6,10 +6,11 @@ import time
 
 import config
 from constants import *
-from definitions import style
+from definitions import Style
 from lib.log import *
 from msgs import insert_silences, nb2msg
 from paths import TMP_PATH
+import res
 import version
 
 
@@ -287,7 +288,10 @@ class Game(object):
     def set_race(self, player_index, race):
         player = self.players[int(player_index)]
         player.race = race
-        self.broadcast([player.login, ] + style.get(player.race, 'title'))
+        style = Style()
+        style.load(res.get_text("ui/style", append=True, locale=True))
+        race_name = style.get(player.race, 'title')
+        self.broadcast([player.login, ] + race_name)
 
     def broadcast(self, msg):
         for client in self.players:
