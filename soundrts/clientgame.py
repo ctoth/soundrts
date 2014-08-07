@@ -180,8 +180,8 @@ class GameInterface(object):
     def srv_speed(self, s):
         self.speed = float(s)
 
-    def srv_sequence(self, s):
-        sounds.play_sequence(s.split())
+    def srv_sequence(self, parts):
+        sounds.play_sequence(parts)
 
     def srv_quit(self):
         voice.silent_flush()
@@ -303,6 +303,16 @@ class GameInterface(object):
                 voice.item([4265, 4264]) # is now off
             else:
                 voice.item([4265, 4263]) # is now on
+        else:
+            voice.item([1029]) # hostile sound
+
+    def cmd_console(self):
+        if self.server.allow_cheatmode:
+            cmd = clientmenu.input_string(msg=[4317], pattern="^[a-zA-Z0-9 .,'@#$%^&*()_+=?!]$", spell=False)
+            if cmd:
+                # This direct way of executing the command might be a bit buggy,
+                # but at the moment this feature is just for cheating or testing anyway.
+                self.player.my_eval(cmd.split())
         else:
             voice.item([1029]) # hostile sound
 
