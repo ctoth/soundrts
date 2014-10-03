@@ -1,28 +1,39 @@
-import os
 import os.path
 import pickle
-import sys
 import threading
 import time
 
 import pygame
 from pygame.locals import KEYDOWN
 
-from clientmedia import sounds, voice
+from clientmedia import sounds, voice, update_display_caption
 import clientgame
+from clientgameorder import update_orders_list
 import definitions
-import clientworld
 import config
-from constants import *
-from mapfile import *
+from constants import METASERVER_URL
+from definitions import style, rules, load_ai
+from lib.log import warning, exception
+from mapfile import Map
 from msgs import nb2msg
-from paths import *
+from paths import REPLAYS_PATH, SAVE_PATH, STATS_PATH
 import random
 import res
-import tts
-from version import VERSION, compatibility_version, COMPATIBILITY_VERSION
-from world import *
-from worldclient import *
+import stats
+from version import VERSION, compatibility_version
+from world import World
+from worldclient import DirectClient, Coordinator, ReplayClient, DummyClient, HalfDummyClient, send_platform_version_to_metaserver 
+
+
+def reload_all():
+    update_display_caption()
+    res.update_mods_list()
+    sounds.load_default()
+    rules.load(res.get_text("rules", append=True))
+    load_ai(res.get_text("ai", append=True)) # just in case
+    style.load(res.get_text("ui/style", append=True, locale=True))
+    while(res.alerts):
+        voice.alert(res.alerts.pop(0))
 
 
 class _Game(object):
@@ -30,7 +41,7 @@ class _Game(object):
     default_triggers = () # empty tuple; a tuple is immutable
     game_type_name = None
     alliances = ()
-    races = ()
+    factions = ()
     record_replay = True
     allow_cheatmode = True
 
@@ -45,7 +56,7 @@ class _Game(object):
         self.replay_write(self.map.pack())
         self.replay_write(players)
         self.replay_write(" ".join(map(str, self.alliances)))
-        self.replay_write(" ".join(self.races))
+        self.replay_write(" ".join(self.factions))
         self.replay_write(str(self.seed))
 
     def replay_write(self, s):
@@ -69,16 +80,18 @@ class _Game(object):
                        self.map.campaign_style,
                        self.map.additional_style)
             sounds.enter_map(self.map.mapfile)
-            clientworld.update_orders_list() # when style has changed
+            update_orders_list() # when style has changed
             self.pre_run()
             self.interface = clientgame.GameInterface(self.me, speed=speed)
             self.interface.load_bindings(
                 res.get_text("ui/bindings", append=True, locale=True) + "\n" +
                 self.map.get_campaign("ui/bindings.txt") + "\n" +
                 self.map.get_additional("ui/bindings.txt"))
-            self.world.populate_map(self.players, self.alliances, self.races)
+            self.world.populate_map(self.players, self.alliances, self.factions)
             self.nb_human_players = self.world.current_nb_human_players()
-            threading.Thread(target=self.world.loop).start()
+            t = threading.Thread(target=self.world.loop)
+            t.daemon = True
+            t.start()
             self.interface.loop()
             self._record_stats(self.world)
             self.post_run()
@@ -140,10 +153,6 @@ class MultiplayerGame(_MultiplayerGame):
     def pre_run(self):
         nb_human_players = len([p for p in self.players if p.login != "ai"])
         if nb_human_players > 1:
-            if compatibility_version() != COMPATIBILITY_VERSION:
-                warning("rules.txt or ai.txt has been modified"
-                        " after the program started: exit...")
-                sys.exit()
             send_platform_version_to_metaserver(self.map.get_name(), nb_human_players)
             self._countdown()
 
@@ -206,9 +215,19 @@ class _Savable(object):
         rules.copy(self._rules)
         definitions._ai = self._ai
         style.copy(self._style)
-        clientworld.update_orders_list() # when style has changed
+        update_orders_list() # when style has changed
         self.interface.set_self_as_listener()
-        threading.Thread(target=self.world.loop).start()
+        t = threading.Thread(target=self.world.loop)
+        t.daemon = True
+        t.start()
+        # Because the simulation is in a different thread,
+        # sometimes the interface "forgets" to ask for an
+        # update. Maybe a better communication protocol
+        # between interface and simulation would solve
+        # this problem ("update" and "no_end_of_update_yet"
+        # should contain the simulation time, maybe). Maybe
+        # some data in a queue has been lost.
+        self.interface.asked_to_update = False
         self.interface.loop()
         self._record_stats(self.world)
         self.post_run()
@@ -269,8 +288,12 @@ class ReplayGame(_Game):
         if game_type_name in ("multiplayer", "training"):
             self.default_triggers = _MultiplayerGame.default_triggers
         game_name = self.replay_read()
+        voice.alert([game_name])
         version = self.replay_read()
         mods = self.replay_read()
+        if mods != config.mods:
+            config.mods = mods
+            reload_all()
         _compatibility_version = self.replay_read()
         if _compatibility_version != compatibility_version():
             voice.alert([1029, 4012]) # hostile sound  "version error"
@@ -280,10 +303,16 @@ class ReplayGame(_Game):
         self.map.unpack(self.replay_read())
         players = self.replay_read().split()
         self.alliances = map(int, self.replay_read().split())
-        self.races = self.replay_read().split()
+        self.factions = self.replay_read().split()
         self.seed = int(self.replay_read())
         self.me = ReplayClient(players[0], self)
-        self.players = [self.me] + [DummyClient(x) for x in players[1:]]
+        self.players = [self.me]
+        for x in players[1:]:
+            if x in ["aggressive", "easy"]: # the "ai_" prefix wasn't recorded
+                self.players += [DummyClient(x)]
+            else:
+                self.players += [HalfDummyClient(x)]
+                self.me.nb_humans += 1
 
     def replay_read(self):
         s = self._file.readline()

@@ -1,16 +1,14 @@
 import asynchat
+import re
 import string
 import sys
 import time
-import traceback
 
-
-import config
-from lib.log import *
+from lib.log import debug, info, warning, exception
 from msgs import insert_silences, encode_msg
 from multimaps import worlds_multi
-from serverroom import *
-from version import COMPATIBILITY_VERSION
+from serverroom import Anonymous, InTheLobby, OrganizingAGame, WaitingForTheGameToStart, Game
+from version import compatibility_version
 
 
 class ConnectionToClient(asynchat.async_chat):
@@ -61,7 +59,7 @@ class ConnectionToClient(asynchat.async_chat):
             debug("ConnectionToClient.handle_close")
         except:
             pass
-	try:
+        try:
             self.server.remove_client(self)
         except SystemExit:
             raise
@@ -117,7 +115,7 @@ class ConnectionToClient(asynchat.async_chat):
         except:
             warning("can't extract version and login: %s" % data)
             return
-        if version != COMPATIBILITY_VERSION:
+        if version != compatibility_version():
             warning("bad client version: %s" % version)
             return
         if re.match("^[a-zA-Z0-9]{1,20}$", login) == None:
@@ -222,8 +220,8 @@ class ConnectionToClient(asynchat.async_chat):
         self.game.start() # create chosen world
         self.server.update_menus()
 
-    def cmd_race(self, args):
-        self.game.set_race(args[0], args[1])
+    def cmd_faction(self, args):
+        self.game.set_faction(args[0], args[1])
         self.server.update_menus()
 
     # "waiting for the game to start" commands

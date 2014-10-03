@@ -1,13 +1,11 @@
 import unittest
 
 from soundrts.nofloat import PRECISION
-from soundrts import worldclient
 from soundrts.mapfile import Map
-###from server import *
-from soundrts.world import *
-##from worldbuilding import *
-from soundrts.worldplayer import *
-##from worldroom import *
+from soundrts.world import World
+from soundrts import worldclient
+from soundrts.worldresource import Corpse
+from soundrts.worldplayerbase import Objective 
 
 
 class ObjectiveTestCase(unittest.TestCase):
@@ -22,13 +20,6 @@ class ObjectiveTestCase(unittest.TestCase):
 #        o.send()       
 
 
-##class _DummyWorld:
-##
-##    def get_next_player_number(self): return 0
-##    def get_next_id(self): return 0
-##    introduction = []
-
-
 class DummyClient(worldclient.DummyClient):
 
     def push(self, *args):
@@ -38,32 +29,10 @@ class DummyClient(worldclient.DummyClient):
 
 class ComputerTestCase(unittest.TestCase):
 
-##    def set_up(self):
-##        w = World([])
-##        w.introduction = []
-##        w.load_and_build_map(Map("soundrts/tests/jl1.txt"))
-##        cl = _DummyClient()
-##        cp = Computer(w, cl, False)
-##        w.players_starts[0][1].append(("b1", w.unit_class("new_flyingmachine")))
-##        w.players_starts[0][1].append(("b1", w.unit_class("castle")))
-###        print w.players_starts[0][1]
-##        cp.init_position(w.players_starts[0])
-##        self.cp2 = Computer(w, cl, False)
-##        self.cp2.init_position(w.players_starts[1])
-##        return w, cl, cp
-
-    def set_up(self, alliance=(1, 2), cloak=False):
+    def set_up(self, alliance=(1, 2), cloak=False, map_name="jl1_extended"):
         w = World([])
         w.introduction = []
-        w.load_and_build_map(Map("soundrts/tests/jl1.txt"))
-        w.players_starts[0][1].append(("b1", w.unit_class("new_flyingmachine")))
-        w.players_starts[0][1].append(("b1", w.unit_class("flyingmachine")))
-        w.players_starts[0][1].append(("b1", w.unit_class("dragon")))
-        w.players_starts[0][1].append(("b1", w.unit_class("castle")))
-        w.players_starts[1][1].append(("b4", w.unit_class("new_flyingmachine")))
-        w.players_starts[1][1].append(("b4", w.unit_class("flyingmachine")))
-        w.players_starts[1][1].append(("b4", w.unit_class("dragon")))
-        w.players_starts[1][1].append(("b4", w.unit_class("castle")))
+        w.load_and_build_map(Map("soundrts/tests/%s.txt" % map_name))
         if cloak:
             w.unit_class("new_flyingmachine").dct["is_a_cloaker"] = True
         cl = DummyClient()
@@ -199,7 +168,8 @@ class ComputerTestCase(unittest.TestCase):
         assert p in [_.initial_model for _ in cp.memory]
 
     def testMemoryOfResourceWhenAlliance(self):
-        w, cl, cp = self.set_up((1, 1))
+        # Note: no unit with diagonal sight (air or tower)
+        w, cl, cp = self.set_up((1, 1), map_name="jl1")
         cp2 = self.cp2
         p = self.find_player_unit(cp, "peasant")
         assert p.player.is_perceiving(p)
@@ -262,7 +232,7 @@ class ComputerTestCase(unittest.TestCase):
         self.assertTrue(p2.is_an_enemy(p))
         p.move_to(p2.place)
         self.assertTrue(p2.can_attack(p)) # (a bit too late to test this)
-        self.assertEqual(p2.cible, p) # "peasant should attack peasant"
+        self.assertEqual(p2.action_target, p) # "peasant should attack peasant"
 
     def testUpgradeTo(self):
         w, cl, cp = self.set_up()
@@ -398,7 +368,7 @@ class ComputerTestCase(unittest.TestCase):
         # do this a second time => same result
         p.move_to(w.grid["a2"], x, y)
         assert (x, y) == (p.x, p.y)
-        p.cible = None
+        p.action_target = None
         p.take_order(["go", w.grid["a1"].id])
         assert (x, y) == (p.x, p.y)
         w.update() # for the order
@@ -412,7 +382,7 @@ class ComputerTestCase(unittest.TestCase):
         p.collision = 0
         p.move_to(w.grid["a2"], x, y)
         assert (x, y) == (p.x, p.y)
-        p.cible = None
+        p.action_target = None
         p.take_order(["go", w.grid["a1"].id])
         assert (x, y) == (p.x, p.y)
         w.update() # for the order
@@ -447,55 +417,6 @@ class ComputerTestCase(unittest.TestCase):
 class BuildingTestCase(unittest.TestCase):
 
     pass
-##    def setUp(self):
-##        w = scenario_rts_single("s1.txt", Server())
-##        self.l = Zone(w, [], [], 0, 0, 0, 0, 100, 100)
-##        self.p = Computer(w)
-##        self.p.gold = 10000
-##        self.p.wood = 10000
-##    
-##    def tearDown(self):
-##        pass
-##
-##    def testAutoupdateMenusAfterBuildingCreation(self):
-##        h = TownHall(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[], []])
-##        h1 = TownHall(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[], []])
-##        b = Barracks(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[h, h1], [h.title]])
-##        self.m = LumberMill(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[b], [b.title]])
-##        h.order_train_peasant()
-##        self.m2 = LumberMill(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[], []])
-##        h.order_train_peasant()
-##        h.order_train_peasant()
-##        h.order_train_peasant()
-##        h.order_train_peasant()
-##        h.cancel_training()
-##        h.complete_upgrade_to_keep()
-##        self.assertEqual(self.p._updated_u_and_c, [[], []])
-##        self.m3 = LumberMill(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[], []])
-##        self.st = Stables(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[b], [b.title]])
-##        h2 = TownHall(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[], []])
-##        bs = Blacksmith(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[h], [h.title]])
-##        bs = Blacksmith(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[], []])
-##        b.order_train_footman()
-##        b.order_train_footman()
-##        b.order_train_footman()
-##        b.order_train_footman()
-##        b.order_train_footman()
-##        self.m4 = LumberMill(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[], []])
-##        b.cancel_training()
-##        self.m5 = LumberMill(self.p, self.l, 0, 0)
-##        self.assertEqual(self.p._updated_u_and_c, [[], []])
 
 
 class PlayerBaseTestCase(unittest.TestCase):

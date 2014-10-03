@@ -1,35 +1,34 @@
 import worldrandom
 
-from constants import *
-from worldentity import *
-from worldorders import *
-from worldresource import *
-from worldroom import *
+from constants import MAX_NB_OF_RESOURCE_TYPES, VIRTUAL_TIME_INTERVAL, DEFAULT_MINIMAL_DAMAGE
+from definitions import rules
+from lib.log import debug, warning, exception
+from nofloat import PRECISION, square_of_distance, int_cos_1000, int_sin_1000, int_angle, int_distance
+from worldaction import Action, AttackAction, MoveAction, MoveXYAction
+from worldentity import Entity
+from worldorders import ORDERS_DICT, GoOrder, RallyingPointOrder, BuildPhaseTwoOrder, UpgradeToOrder
+from worldresource import Corpse, Deposit
 
 
 class Creature(Entity):
 
     type_name = None
-    
-    action_type = None
-    action_target = None
 
-    def getcible(self):
-        return self.action_target
+    def get_action_target(self):
+        if self.action:
+            return self.action.target
 
-    def setcible(self, value):
+    def set_action_target(self, value):
         if isinstance(value, tuple):
-            self.action_type = "move"
-            self._reach_xy_timer = 15 # 5 seconds # XXXXXXXX not beautiful
+            self.action = MoveXYAction(self, value)
         elif self.is_an_enemy(value):
-            self.action_type = "attack"
+            self.action = AttackAction(self, value)
         elif value is not None:
-            self.action_type = "move" # "use" ?
+            self.action = MoveAction(self, value) # "use" ?
         else:
-            self.action_type = None
-        self.action_target = value
+            self.action = Action(self, value)
 
-    cible = property(getcible, setcible)
+    action_target = property(get_action_target, set_action_target)
 
     hp_max = 0
     mana_max = 0
@@ -67,14 +66,14 @@ class Creature(Entity):
 
     is_vulnerable = True
     is_healable = True
-
-    sight_range = 0
+    is_a_gate = False
+    provides_survival = False
 
     damage_radius = 0
     target_types = ["ground"]
     range = None
     is_ballistic = 0
-    special_range = 0
+    minimal_range = 0
     cooldown = None
     next_attack_time = 0
     splash = False
@@ -103,7 +102,7 @@ class Creature(Entity):
 
     def set_player(self, player):
         # stop current action
-        self.cible = None
+        self.action_target = None
         self.cancel_all_orders(unpay=False)
         # remove from previous player
         if self.player is not None:
@@ -122,8 +121,8 @@ class Creature(Entity):
             self.upgrade_to_player_level()
             # player units must stop attacking the "not hostile anymore" unit
             for u in player.units:
-                if u.cible is self:
-                    u.cible = None
+                if u.action_target is self:
+                    u.action_target = None
         # update perception of object by the players
         if self.place is not None:
             self.update_perception()
@@ -144,6 +143,10 @@ class Creature(Entity):
         # stats "with a max"
         self.hp = self.hp_max
         self.mana = self.mana_max
+        # stat defined for the whole game
+        self.minimal_damage = rules.get("parameters", "minimal_damage")
+        if self.minimal_damage is None:
+            self.minimal_damage = DEFAULT_MINIMAL_DAMAGE
 
         # move to initial place
         Entity.__init__(self, place, x, y, o)
@@ -168,14 +171,15 @@ class Creature(Entity):
         if self.airground_type == "air":
             return 2
         else:
-            return self.place.height
+            return self.place.height + self.bonus_height
 
     def get_observed_squares(self):
         if self.is_inside or self.place is None:
             return []
         result = [self.place]
         for sq in self.place.neighbours:
-            if self.height > sq.height or self.sight_range == 1 and self.height >= sq.height:
+            if self.height > sq.height \
+            or self.height == sq.height and self._can_go(sq.x, sq.y):
                 result.append(sq)
         return result
 
@@ -188,7 +192,7 @@ class Creature(Entity):
         if not self.orders:
             return
         o = self.orders[0]
-        if hasattr(o, "mode") and o.mode == "construire":
+        if hasattr(o, "mode") and o.mode == "build":
             return "building"
         if hasattr(o, "mode") and o.mode == "gather" and hasattr(o.target, "type_name"):
             return "exploiting_%s" % o.target.type_name
@@ -203,86 +207,99 @@ class Creature(Entity):
                 n += weight
         return n
 
-    def _future_coords(self, steer, dmax):
-        # XXX: assertion: self.o points to the target
-        if steer == 0:
-            d = min(self._d, dmax) # stop before colliding target
-        else:
-            d = self._d
-        a = self.o + steer
+    def _future_coords(self, rotation, target_d):
+        d = self.speed * VIRTUAL_TIME_INTERVAL / 1000
+        if rotation == 0:
+            d = min(d, target_d) # stop before colliding target
+        a = self.o + rotation
         x = self.x + d * int_cos_1000(a) / 1000
         y = self.y + d * int_sin_1000(a) / 1000
         return x, y
 
-    def _heuristic_value(self, steer, dmax):
-        x, y = self._future_coords(steer, dmax)
-        return abs(steer) + self._already_walked(x, y) * 200
+    def _heuristic_value(self, rotation, target_d):
+        x, y = self._future_coords(rotation, target_d)
+        return abs(rotation) + self._already_walked(x, y) * 200
 
-    def _try(self, steer, dmax):
-        x, y = self._future_coords(steer, dmax)
-        if not self.place.dans_le_mur(x, y) and not self.would_collide_if(x, y):
-            if abs(steer) >= 90:
+    def _can_go(self, x, y):
+        if self.airground_type != "ground":
+            return True
+        new_place = self.world.get_place_from_xy(x, y)
+        if new_place is self.place:
+            return True
+        for e in self.place.exits:
+            if e.other_side.place is new_place:
+                if e.is_blocked(self):
+                    for o in e.blockers:
+                        self.player.observe(o)
+                else:
+                    return True
+
+    def _try(self, rotation, target_d):
+        x, y = self._future_coords(rotation, target_d)
+        if self.place.contains(x, y) and not self.would_collide_if(x, y):
+            if abs(rotation) >= 90:
                 self.walked.append([self.place, self.x, self.y, 5]) # mark the dead end
-            self.move_to(self.place, x, y, self.o + steer)
+            self.move_to(self.place, x, y, self.o + rotation)
+            self.unblock()
+            return True
+        elif not self.place.contains(x, y) and self._can_go(x, y) and not self.would_collide_if(x, y):
+            if abs(rotation) >= 90:
+                self.walked.append([self.place, self.x, self.y, 5]) # mark the dead end
+            new_place = self.world.get_place_from_xy(x, y)
+            self.move_to(new_place, x, y, self.o + rotation)
+            self.unblock()
             return True
         return False
 
-    _steers = None
-    _smooth_steers = None
+    _rotations = None
+    _smooth_rotations = None
 
-    def _reach(self, dmax):
-        self._d = self.speed * VIRTUAL_TIME_INTERVAL / 1000 # used by _future_coords and _heuristic_value
-        if self._smooth_steers:
-            # "smooth steering" mode
-            steer = self._smooth_steers.pop(0)
-            if self._try(steer, dmax) or self._try(-steer, dmax):
-                self._smooth_steers = []
+    def _reach(self, target_d):
+        if self._smooth_rotations:
+            # "smooth rotation" mode
+            rotation = self._smooth_rotations.pop(0)
+            if self._try(rotation, target_d) or self._try(-rotation, target_d):
+                self._smooth_rotations = []
         else:
-            if not self._steers:
+            if not self._rotations:
                 # update memory
                 self.walked = [x[0:3] + [x[3] - 1] for x in self.walked if x[3] > 1]
                 # "go straight" mode
-                if not self.walked and self._try(0, dmax): return
-                # enter "steering mode"
-                self._steers = [(self._heuristic_value(x, dmax), x) for x in
+                if not self.walked and self._try(0, target_d): return
+                # enter "rotation mode"
+                self._rotations = [(self._heuristic_value(x, target_d), x) for x in
                           (0, 45, -45, 90, -90, 135, -135, 180)]
-                self._steers.sort()
-            # "steering" mode
-            for _ in range(min(4, len(self._steers))):
-                _, steer = self._steers.pop(0)
-                if self._try(steer, dmax):
-                    self._steers = []
+                self._rotations.sort()
+            # "rotation" mode
+            for _ in range(min(4, len(self._rotations))):
+                _, rotation = self._rotations.pop(0)
+                if self._try(rotation, target_d):
+                    self._rotations = []
                     return
-            if not self._steers:
-                # enter "smooth steering mode"
-                self._smooth_steers = range(1, 180, 1)
+            if not self._rotations:
+                # enter "smooth rotation mode"
+                self._smooth_rotations = range(1, 180, 1)
                 self.walked = []
                 self.walked.append([self.place, self.x, self.y, 5]) # mark the dead end
                 self.notify("collision")
 
     # go center
 
-    def action_reach_xy(self):
-        x, y = self.cible
-        d = int_distance(self.x, self.y, x, y)
-        if self._reach_xy_timer > 0 and d > self.radius:
-            # execute action
-            self.o = int_angle(self.x, self.y, x, y) # turn toward the goal
-            self._reach(d)
-            self._reach_xy_timer -= 1
-        else:
-            self.action_complete()
-
     def _go_center(self):
-        self.cible = (self.place.x, self.place.y)
+        self.action_target = (self.place.x, self.place.y)
 
     def _near_enough_to_use(self, target):
         if self.is_an_enemy(target):
-            if self.range and target.place is self.place:
-                d = target.use_range(self)
-                return square_of_distance(self.x, self.y, target.x, target.y) < d * d
-            elif self.is_ballistic or self.special_range:
-                return self.can_attack(target)
+            # Melee units (range <= 2) shouldn't attack units
+            # on the other side of a wall.
+            if not self._can_go(target.x, target.y) \
+                and self.range <= 2 * PRECISION \
+                and not target.blocked_exit:
+                    return False
+            if self.minimal_range and square_of_distance(self.x, self.y, target.x, target.y) < self.minimal_range * self.minimal_range:
+                return False
+            d = target.use_range(self)
+            return square_of_distance(self.x, self.y, target.x, target.y) < d * d
         elif target.place is self.place:
             d = target.use_range(self)
             return square_of_distance(self.x, self.y, target.x, target.y) < d * d
@@ -294,7 +311,7 @@ class Creature(Entity):
     # reach and use
 
     def action_reach_and_use(self):
-        target = self.cible
+        target = self.action_target
         if not self._near_enough_to_use(target):
             d = int_distance(self.x, self.y, target.x, target.y)
             self.o = int_angle(self.x, self.y, target.x, target.y) # turn toward the goal
@@ -303,25 +320,14 @@ class Creature(Entity):
             self.walked = []
             target.be_used_by(self)
 
-    # fly to
-
-    def action_fly_to_remote_target(self):
-        def get_place_from_xy(x, y):
-            for z in self.place.world.squares:
-                if z.contains_xy(x, y):
-                    return z
-        dmax = int_distance(self.x, self.y, self.cible.x, self.cible.y)
-        self.o = int_angle(self.x, self.y, self.cible.x, self.cible.y) # turn toward the goal
-        self._d = self.speed * VIRTUAL_TIME_INTERVAL / 1000 # used by _future_coords and _heuristic_value
-        x, y = self._future_coords(0, dmax)
-        if self.place.dans_le_mur(x, y):
-            try:
-                new_place = get_place_from_xy(x, y)
-                self.move_to(new_place, x, y, self.o)
-            except:
-                exception("problem when flying to a new square")
+    def go_to_xy(self, x, y):
+        d = int_distance(self.x, self.y, x, y)
+        if d > self.radius:
+            # execute action
+            self.o = int_angle(self.x, self.y, x, y) # turn towards the goal
+            self._reach(d)
         else:
-            self.move_to(self.place, x, y)
+            return True
 
     # update
 
@@ -335,31 +341,8 @@ class Creature(Entity):
         else:
             queue[0].update()
 
-    def action_complete(self):
-        self.walked = []
-        self.cible = None
-        self._flee_or_fight_if_enemy()
-
-    def act_move(self):
-        if isinstance(self.action_target, tuple):
-            self.action_reach_xy()
-        elif getattr(self.cible, "place", None) is self.place:
-            self.action_reach_and_use()
-        elif self.airground_type == "air":
-            self.action_fly_to_remote_target()
-        else:
-            self.action_complete()
-
-    def act_attack(self): # without moving to another square
-        if self.range and self.cible in self.place.objects:
-            self.action_reach_and_use()
-        elif self.is_ballistic and self.place.is_near(getattr(self.cible, "place", None)) \
-             and self.height > self.cible.height:
-            self.aim(self.cible)
-        elif self.special_range and self.place.is_near(getattr(self.cible, "place", None)):
-            self.aim(self.cible)
-        else:
-            self.action_complete()
+    def _is_attacking(self):
+        return isinstance(self.action, AttackAction)
 
     def update(self):
         assert isinstance(self.hp, int)
@@ -379,19 +362,17 @@ class Creature(Entity):
         if self.harm_level:
             self.harm_nearby_units()
         # action level
-        if self.action_type:
-            getattr(self, "act_" + self.action_type)()
+        if self.action:
+            self.action.update()
         # order level (warning: completing UpgradeToOrder deletes the object)
         if self.has_imperative_orders():
             self._execute_orders()
         else:
-            # catapult try to find enemy # XXXXX later: do this in triggers
-            if self.special_range and self.action_type != "attack": # XXXX if self.special_range or self.range?
+            # TODO: use triggers (to optimize)
+            if not self._is_attacking():
                 self.choose_enemy()
-            if self.is_ballistic and self.height == 1 and self.action_type != "attack":
-                self.choose_enemy()
-            # execute orders if the unit is not fighting (targetting an enemy)
-            if self.orders and self.action_type != "attack":
+            # execute orders if the unit is not fighting (targeting an enemy)
+            if self.orders and not self._is_attacking():
 #            # experimental: execute orders if no current action
 #            if self.orders and not self.action_type:
                 self._execute_orders()
@@ -486,10 +467,7 @@ class Creature(Entity):
 
     # choose enemy
 
-    def can_attack(self, other): # without moving to another square
-        # assert other in self.player.perception # XXX false
-        # assert not self.is_inside # XXX not sure
-
+    def can_attack_if_in_range(self, other):
         if self.is_inside:
             return False
         if other not in self.player.perception:
@@ -500,13 +478,18 @@ class Creature(Entity):
             return False
         if not other.is_vulnerable:
             return False
+        return True
+
+    def can_attack(self, other): # without moving to another square
+        # assert other in self.player.perception # XXX false
+        # assert not self.is_inside # XXX not sure
+
+        if not self.can_attack_if_in_range(other):
+            return False
         if self.range and other.place is self.place:
             return True
         if self.place.is_near(other.place):
-            if self.special_range:
-                return True
-            if self.is_ballistic and self.height > other.height:
-                return True
+            return self._near_enough_to_use(other)
 
 ##    def _can_be_reached_by(self, player):
 ##        for u in player.units:
@@ -519,8 +502,8 @@ class Creature(Entity):
         reachable_enemies = [x for x in known if self.can_attack(x)]
         if reachable_enemies:
             reachable_enemies.sort(key=lambda x: (- x.value, square_of_distance(self.x, self.y, x.x, x.y), x.id))
-            self.cible = reachable_enemies[0] # attack nearest
-            self.notify("attack") # XXX move this into set_cible()?
+            self.action_target = reachable_enemies[0] # attack nearest
+            self.notify("attack") # XXX move this into set_action_target()?
             return True
 ##        else:
 ##            for u in enemy_units:
@@ -529,26 +512,21 @@ class Creature(Entity):
 ##                    return
 
     def choose_enemy(self, someone=None):
-        if self.has_imperative_orders():
+        if self.has_imperative_orders() or self.is_fleeing:
             return
         if not self.damage:
             return
-        if getattr(self.cible, "menace", 0):
+        if getattr(self.action_target, "menace", 0):
             return
         if someone is not None and self.can_attack(someone):
-            self.cible = someone
-            self.notify("attack") # XXX move this into set_cible()?
+            self.action_target = someone
+            self.notify("attack") # XXX move this into set_action_target()?
             return
-        if self.range and self._choose_enemy(self.place):
+        if self._choose_enemy(self.place):
             return
-        if self.is_ballistic:
-            for p in self.place.neighbours:
-                if self.height > p.height and self._choose_enemy(p):
-                    break
-        if self.special_range:
-            for p in self.place.neighbours:
-                if self._choose_enemy(p):
-                    break
+        for p in self.place.neighbours:
+            if self._choose_enemy(p):
+                break
 
     #
 
@@ -571,25 +549,28 @@ class Creature(Entity):
                     u.on_friend_unit_attacked(attacker)
 
     def on_friend_unit_attacked(self, attacker):
-        if self.has_imperative_orders():
+        if self.has_imperative_orders() or self.is_fleeing:
             return
-        if not self.is_fleeing and \
-           (getattr(self.cible, "menace", 0) < attacker.menace) and \
-             self.can_attack(attacker) and \
-             self.place == attacker.place:
-            self.cible = attacker
+        if getattr(self.action_target, "menace", 0) < attacker.menace:
+            if self.can_attack(attacker):
+                self.action_target = attacker
+            elif not self.orders and self.place.is_near(attacker.place):
+                self.take_default_order(attacker.id)
+                self.take_order(("go", "zoom-%s-%s-%s" %
+                     (self.place.name, self.x, self.y)),
+                     forget_previous=False)
 
     def react_death(self, creature):
-        if self.cible == creature:
-            self.cible = None
+        if self.action_target == creature:
+            self.action_target = None
             self.choose_enemy()
             self.player.update_attack_squares(self) # XXXXXXX ?
         elif self.place == creature.place:
             self._flee_or_fight()
 
-    def react_go_through(self, someone, unused_door):
-        if someone == self.cible:
-            self.cible = None
+    def react_departure(self, someone, unused_door):
+        if someone == self.action_target:
+            self.action_target = None
             self.choose_enemy() # choose another enemy
 
     def _flee_or_fight_if_enemy(self):
@@ -597,9 +578,7 @@ class Creature(Entity):
             self._flee_or_fight()
 
     def _flee_or_fight(self, someone=None):
-        if self.has_imperative_orders():
-            return
-        if self.is_fleeing:
+        if self.has_imperative_orders() or self.is_fleeing:
             return
         if self.ai_mode == "defensive":
             if self.place.balance(self.player) >= 0:
@@ -609,27 +588,18 @@ class Creature(Entity):
         elif self.ai_mode == "offensive":
             self.choose_enemy(someone)
 
-    def react_arrives(self, someone, door=None):
-        if self.place is someone.place and not self.is_fleeing:
+    def react_arrival(self, someone):
+        if self.place is someone.place:
             self._flee_or_fight(someone)
-
-    def door_menace(self, door):
-        if door in self.player.enemy_doors:
-            return 1
-        else:
-            return 0
 
     def flee(self, someone=None):
         self.notify("flee")
         self.player.on_unit_flee(self)
         self.orders = []
-        if someone is None:
-            exits = [[(square_of_distance(e.x, e.y, self.x, self.y), e.id), e] for e in self.place.exits]
-        else:
-            exits = [[(self.door_menace(e), - square_of_distance(e.x, e.y, someone.x, someone.y), e.id), e] for e in self.place.exits]
-        exits.sort()
-        if len(exits) > 0:
-            self.cible = exits[0][1]
+        if self.place.exits:
+            def menace(e):
+                return (- e.other_side.place.balance(self.player), e.id)
+            self.action_target = sorted(self.place.exits, key=menace)[0]
         self.is_fleeing = True
 
     def react_self_arrival(self):
@@ -643,7 +613,7 @@ class Creature(Entity):
     # attack
 
     def hit(self, target):
-        damage = max(0, self.damage - target.armor)
+        damage = max(self.minimal_damage, self.damage - target.armor)
         target.receive_hit(damage, self)
 
     def splash_aim(self, target):
@@ -653,7 +623,7 @@ class Creature(Entity):
                 pass  # no friendly fire
             elif isinstance(o, Creature) \
                and square_of_distance(o.x, o.y, target.x, target.y) <= damage_radius_2 \
-               and self.can_attack(o):
+               and self.can_attack_if_in_range(o):
                 self.hit(o)
 
     def aim(self, target):
@@ -676,6 +646,7 @@ class Creature(Entity):
             warning("unknown order: %s", o)
             return
         if not cls.is_allowed(self, *o[1:]):
+            self.notify("order_impossible")
             debug("wrong order to %s: %s", self.type_name, o)
             return
         if forget_previous and not cls.never_forget_previous:
@@ -687,9 +658,13 @@ class Creature(Entity):
         order.immediate_action()
 
     def get_default_order(self, target_id):
+        if target_id and target_id.startswith("zoom"):
+            return "go"
         target = self.player.get_object_by_id(target_id)
         if not target:
             return
+        elif getattr(target, "is_an_exit", False):
+            return "block"
         elif getattr(target, "player", None) is self.player and self.have_enough_space(target):
             return "load"
         elif getattr(target, "player", None) is self.player and target.have_enough_space(self):
@@ -735,9 +710,17 @@ class Creature(Entity):
         place, x, y, _id = target.place, target.x, target.y, target.id # remember before deletion
         if not hasattr(place, "place"): # target is a square
             place = target
-        if not type.is_buildable_anywhere:
+        if not (getattr(target, "is_an_exit", False)
+                or type.is_buildable_anywhere):
             target.delete() # remove the meadow replaced by the building
+            remember_land = True
+        else:
+            remember_land = False
         site = BuildingSite(self.player, place, x, y, type)
+        if remember_land:
+            site.building_land = target
+        if getattr(target, "is_an_exit", False):
+            site.block(target)
 
         # update the orders of the workers
         order = self.orders[0]
@@ -815,6 +798,7 @@ class Unit(Creature):
     value = 1
 
     is_cloakable = True
+    is_a_gate = True
 
     def __init__(self, player, place, x, y, o=90):
         Creature.__init__(self, player, place, x, y, o)
@@ -853,7 +837,7 @@ class Unit(Creature):
         return self.next_stage(self.player.attack_squares[0])
 
     def auto_explore(self):
-        if not self.cible:
+        if not self.action_target:
             if self.place in self.player.places_to_explore:
                 self.player.places_to_explore.remove(self.place)
             # level 1
@@ -875,7 +859,7 @@ class Unit(Creature):
                     if place in self.player.observed_before_squares:
                         self.player.places_to_explore.remove(place)
                     else:
-                        self.cible = self.next_stage(place)
+                        self.action_target = self.next_stage(place)
                         break
             else:
                 self.player.places_to_explore = [p
@@ -895,13 +879,21 @@ class Unit(Creature):
                 return []
         return self._basic_abilities
 
+    def move_on_border(self, e):
+        self.move_to(e.place, e.x, e.y)
+
+    def block(self, e):
+        if not self.blocked_exit:
+            self.blocked_exit = e
+            e.add_blocker(self)
+
 
 class Worker(Unit):
 
     value = 0 # not 0.1 to avoid "combat 1 against 10" (misleading) XXX
     ai_mode = "defensive"
     can_switch_ai_mode = True
-    _basic_abilities = ["go", "gather", "repair"]
+    _basic_abilities = ["go", "gather", "repair", "block"]
     is_teleportable = True
 
 
@@ -909,7 +901,7 @@ class Soldier(Unit):
 
     ai_mode = "offensive"
     can_switch_ai_mode = True
-    _basic_abilities = ["go", "patrol"]
+    _basic_abilities = ["go", "patrol", "block"]
     is_teleportable = True
 
 
@@ -947,8 +939,8 @@ class _Building(Creature):
             attacker.player.nb_buildings_killed += 1
         place, x, y = self.place, self.x, self.y
         Creature.die(self, attacker)
-        if not self.is_buildable_anywhere:
-            Meadow(place, x, y)
+        if self.building_land:
+            self.building_land.move_to(place, x, y)
 
     def flee(self, someone=None):
         pass
@@ -978,6 +970,14 @@ class BuildingSite(_Building):
         return self.type.is_buildable_anywhere
 
     @property
+    def is_buildable_on_exits_only(self):
+        return self.type.is_buildable_on_exits_only
+
+    @property
+    def is_a_gate(self):
+        return self.type.is_a_gate
+
+    @property
     def time_cost(self):
         return self.type.time_cost
 
@@ -990,8 +990,12 @@ class BuildingSite(_Building):
         self.timer -= 1
         if self.timer == 0:
             player, place, x, y, hp = self.player, self.place, self.x, self.y, self.hp
+            blocked_exit = self.blocked_exit
             self.delete()
             building = self.type(player, place, x, y)
+            building.building_land = self.building_land
+            if blocked_exit:
+                building.block(blocked_exit)
             building.hp = self.type.hp_max - self.damage_during_construction
             building.notify("complete")
 
@@ -1003,15 +1007,9 @@ class BuildingSite(_Building):
 class Building(_Building):
 
     is_buildable_anywhere = False
+    is_buildable_on_exits_only = False
+    provides_survival = True
 
     def __init__(self, prototype, player, place, x, y):
         _Building.__init__(self, prototype, player, place, x, y)
         self.player.nb_buildings_produced += 1
-
-
-
-
-
-
-
-

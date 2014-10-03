@@ -37,7 +37,7 @@ class Order(object):
 
     def update(self):
         if self.__first_update:
-            self.unit.cible = None
+            self.unit.action_target = None
             self.__first_update = False
         self.execute()
 
@@ -70,8 +70,8 @@ class Order(object):
         if self.unit.speed == 0:
             self.mark_as_impossible()
             return
-        self.unit.cible = self.unit.next_stage(target)
-        if self.unit.cible is None: # target is unreachable
+        self.unit.action_target = self.unit.next_stage(target)
+        if self.unit.action_target is None: # target is unreachable
             self.mark_as_impossible()
             self.unit._go_center() # do not block the path
 
@@ -131,11 +131,11 @@ class StopOrder(ImmediateOrder):
 
     @classmethod
     def is_allowed(cls, unit, *unused_args):
-        return unit.cible
+        return unit.action_target
 
     def immediate_action(self):
         self.unit.cancel_all_orders()
-        self.unit.cible = None
+        self.unit.action_target = None
         self.unit.notify("order_ok")
 
 
@@ -443,18 +443,18 @@ class GoOrder(BasicOrder):
         elif self.unit._near_enough_to_use(self.target) and \
             self.is_doing_an_imperative_attack():
             # catapult with imperative attack on a specific target
-            self.unit.cible = self.target
+            self.unit.action_target = self.target
         elif self.unit.place == self.target:
             self.mark_as_complete()
             self.unit._go_center()
-        elif self.unit.cible == self.target and \
+        elif self.unit.action_target == self.target and \
             not self.is_doing_an_imperative_attack() and \
             self.unit.airground_type != "air":
             self._go_timer -= 1
             if self._go_timer == 0:
                 self.mark_as_complete()
-                self.unit.cible = None
-        elif self.unit.cible is None:
+                self.unit.action_target = None
+        elif self.unit.action_target is None:
             self.move_to_or_fail(self.target)
 
 
@@ -474,21 +474,21 @@ class PatrolOrder(BasicOrder):
                 return
         self.unit.notify("order_ok")
         self.target2 = self.unit.place
-        self.mode = "aller"
+        self.mode = "go"
 
     def execute(self):
         self.update_target()
-        if self.mode == "aller":
+        if self.mode == "go":
             if self.unit.place == self.target:
-                self.mode = "retour"
+                self.mode = "go_back"
                 self.unit._go_center()
-            elif self.unit.cible is None:
+            elif self.unit.action_target is None:
                 self.move_to_or_fail(self.target)
-        elif self.mode == "retour":
+        elif self.mode == "go_back":
             if self.unit.place == self.target2:
-                self.mode = "aller"
+                self.mode = "go"
                 self.unit._go_center()
-            elif self.unit.cible is None:
+            elif self.unit.action_target is None:
                 self.move_to_or_fail(self.target2)
 
 
@@ -519,33 +519,33 @@ class GatherOrder(BasicOrder):
     def execute(self):
         if self.mode is None: # decide now
             if self.unit.cargo is not None: # cargo from previous orders
-                self.mode = "ramener_recolte"
+                self.mode = "bring_back"
             else:
-                self.mode = "aller_gather"
+                self.mode = "go_gather"
         self.update_target()
-        if self.mode == "ramener_recolte":
+        if self.mode == "bring_back":
             if self.storage is None:
                 self.storage = self.player.nearest_warehouse(self.unit.place,
                                                              self.unit.cargo[0])
                 if self.storage is None:
                     self.mark_as_impossible()
                 else:
-                    self.unit.cible = self.unit.next_stage(self.storage)
+                    self.unit.action_target = self.unit.next_stage(self.storage)
             elif self.unit._near_enough_to_use(self.storage):
-                self.mode = "stocker_recolte"
+                self.mode = "store"
                 self.unit.notify("store,%s" % self.unit.cargo[0])
                 self.delai = self.unit.place.world.time + 1000 # 1 second
-                self.unit.cible = None
-            elif self.unit.cible is None:
-                self.unit.cible = self.unit.next_stage(self.storage)
-                if self.unit.cible is None:
+                self.unit.action_target = None
+            elif self.unit.action_target is None:
+                self.unit.action_target = self.unit.next_stage(self.storage)
+                if self.unit.action_target is None:
                     self.storage = None # find a new storage
-        elif self.mode == "stocker_recolte":
-#            self.cible = None # cancel possible attack
+        elif self.mode == "store":
+#            self.action_target = None # cancel possible attack
             if self.unit.place.world.time > self.delai:
                 self._store_cargo()
-                self.mode = "aller_gather"
-        elif self.mode == "aller_gather":
+                self.mode = "go_gather"
+        elif self.mode == "go_gather":
             if self.target is None or self.target.place is None: # resource exhausted
                 self.player.on_resource_exhausted()
                 self.mark_as_impossible()
@@ -553,19 +553,19 @@ class GatherOrder(BasicOrder):
             elif self.unit._near_enough_to_use(self.target):
                 self.mode = "gather"
                 self.delai = self.unit.place.world.time + self.target.extraction_time
-                self.unit.cible = None
-            elif self.unit.cible is None:
+                self.unit.action_target = None
+            elif self.unit.action_target is None:
                 self.move_to_or_fail(self.target)
-##                if self.unit.cible is None: # exhausted or impossible to reach
+##                if self.unit.action_target is None: # exhausted or impossible to reach
 ##                    self.player.on_resource_exhausted()
         elif self.mode == "gather": # XXX TODO: check if a fight or a teleportation is going on
-#            self.cible = None # cancel possible attack
+#            self.action_target = None # cancel possible attack
             if self.target is None or self.target.place is None: # resource exhausted
                 self.player.on_resource_exhausted()
                 self.mark_as_impossible()
             elif self.unit.place.world.time > self.delai:
                 self._extract_cargo()
-                self.mode = "ramener_recolte"
+                self.mode = "bring_back"
                 self.storage = None
 
 
@@ -584,11 +584,11 @@ class AutoAttackOrder(ComputerOnlyOrder):
         pass
 
     def execute(self):
-        if not self.unit.cible:
+        if not self.unit.action_target:
             if self.unit.place.contains_enemy(self.player):
                 self.unit.choose_enemy()
             else:
-                self.unit.cible = self.unit.next_stage_enemy()
+                self.unit.action_target = self.unit.next_stage_enemy()
 
 
 class AutoExploreOrder(ComputerOnlyOrder):
@@ -608,6 +608,34 @@ class AutoExploreOrder(ComputerOnlyOrder):
             self.mark_as_complete()
 
 
+class BlockOrder(BasicOrder):
+
+    keyword = "block"
+    nb_args = 1
+    is_imperative = True
+
+    def on_queued(self):
+        self.target = self.player.get_object_by_id(self.args[0])
+        # first check
+        if not getattr(self.target, "is_an_exit", False):
+            self.mark_as_impossible()
+            return
+        self.unit.notify("order_ok")
+        self.mode = "go_block"
+
+    def execute(self):
+        self.update_target()
+        if self.mode == "go_block":
+            if self.unit._near_enough_to_use(self.target):
+                self.mode = "block"
+                self.unit.action_target = None
+                self.unit.move_on_border(self.target)
+            elif self.unit.action_target is None:
+                self.move_to_or_fail(self.target)
+        elif self.mode == "block":
+            self.unit.block(self.target)
+
+
 class RepairOrder(BasicOrder):
 
     keyword = "repair"
@@ -620,21 +648,21 @@ class RepairOrder(BasicOrder):
             self.mark_as_impossible()
             return
         self.unit.notify("order_ok")
-        self.mode = "aller_construire"
+        self.mode = "go_build"
 
     def execute(self):
         self.update_target()
         if self.target is None or self.target.place is None or self.target.is_fully_repaired:
             # if the building has been destroyed or cancelled or completely repaired then the work is complete
             self.mark_as_complete()
-            self.unit.cible = None
-        elif self.mode == "aller_construire":
+            self.unit.action_target = None
+        elif self.mode == "go_build":
             if self.unit._near_enough_to_use(self.target):
-                self.mode = "construire"
-                self.unit.cible = None
-            elif self.unit.cible is None:
+                self.mode = "build"
+                self.unit.action_target = None
+            elif self.unit.action_target is None:
                 self.move_to_or_fail(self.target)
-        elif self.mode == "construire":
+        elif self.mode == "build":
             self.target.be_built()
 
 
@@ -661,10 +689,16 @@ class BuildOrder(ComplexOrder):
     def on_queued(self):
         self.target = self.player.get_object_by_id(self.args[0])
         # first check
-        if not self.type.is_buildable_anywhere \
-           and not getattr(self.target, "is_a_building_land", False):
-            self.mark_as_impossible("cannot_build_here")
-            return
+        if self.type.is_buildable_on_exits_only:
+            if not getattr(self.target, "is_an_exit", False):
+                self.mark_as_impossible("cannot_build_here")
+                return
+        elif not self.type.is_buildable_anywhere:
+            if not getattr(self.target, "is_a_building_land", False):
+                self.target = getattr(self.target, "building_land", None)
+                if self.target is None:
+                    self.mark_as_impossible("cannot_build_here")
+                    return
         if not self.player.resources_are_reserved(self):
             result = self.unit.check_if_enough_resources(self.cost, self.food_cost)
             if result is not None:
@@ -695,7 +729,7 @@ class BuildOrder(ComplexOrder):
                 self.mark_as_impossible("not_enough_space")
                 return
             self.unit._put_building_site(self.type, self.target)
-        elif self.unit.cible is None:
+        elif self.unit.action_target is None:
             self.move_to_or_fail(self.target)
 
 

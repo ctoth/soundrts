@@ -444,8 +444,6 @@
 4308 stone
 4309 quarry
 
-4310 random race
-
 4311 has been defeated
 4312 You have been defeated.
 4313 You are now in observer mode.
@@ -456,3 +454,25 @@
 4316 Press Control Shift F4 to observe another player.
 
 4317 Enter a command.
+
+4318 zoom
+
+4319 modify the mods load order
+4320 add a mod to the list
+4321 the list is empty
+4322 Loading
+
+4323 packages
+4324 packages menu
+4325 add a package
+4326 deactivate a package
+4327 update a package
+4328 Downloading...
+4329 Extracting...
+4330 Couldn't find mod:
+
+4331 wall
+4332 gate
+4333 block
+
+4334 random faction

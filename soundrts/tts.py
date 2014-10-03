@@ -28,7 +28,7 @@ elif platform.system() == "Darwin":
     except:
         print "Couldn't use Appkit.NSSpeechSynthesizer."
 
-from lib.log import *
+from lib.log import warning, exception
 
 
 MINIMAL_PLAYING_TIME = 1 # in seconds
@@ -91,5 +91,11 @@ def init():
         is_available = False
     else:
         is_available = True
+
+def close():
+    if not is_available: return
+    # speech dispatcher must be closed or the program won't close
+    if hasattr(_tts, "_client"):
+        _tts._client.close()
 
 init()

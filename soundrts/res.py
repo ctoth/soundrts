@@ -3,7 +3,7 @@ import os
 
 import config
 from lib.log import warning
-import paths
+from package import get_all_packages_paths
 
 
 def _localize(p, lang):
@@ -27,7 +27,7 @@ def _localize(p, lang):
 
 def _available_languages():
     result = ["en"]
-    for n in os.listdir(_r.packages[0]):
+    for n in os.listdir(_r.mods[0]):
         if n.startswith("ui-"):
             result.append(n[3:])
     return result
@@ -75,8 +75,31 @@ def _get_language():
 class ResourceLoader(object):
 
     def __init__(self):
-        self.packages = []
+        self.mods = []
         self.language = ""
+        self.alerts = []
+        self.update_mods_list()
+
+    def update_mods_list(self):
+        self.mods = []
+        self.mods.append("res") # "vanilla mod"
+        for p in config.mods.split(","):
+            p = p.strip()
+            if p:
+                mod_found = False
+                # get_all_packages_paths() is reversed so the latest path
+                # takes precedence over the previous ones.  
+                for root in reversed(get_all_packages_paths()):
+                    path = os.path.join(root, "mods", p)
+                    if os.path.exists(path):
+                        self.mods.append(path)
+                        mod_found = True
+                        break
+                if not mod_found:
+                    mods = config.mods.split(",")
+                    mods.remove(p)
+                    config.mods = ",".join(mods)
+                    self.alerts.append([1029, 4330, p])
 
     def exists(self, name):
         pass
@@ -90,7 +113,7 @@ class ResourceLoader(object):
     def get_texts(self, name, locale=False, root=None):
         name += ".txt"
         if root is None:
-            roots = self.packages
+            roots = self.mods
         else:
             roots = [root]
         result = []
@@ -108,7 +131,7 @@ class ResourceLoader(object):
 
     def get_sound_paths(self, path, root=None):
         if root is None:
-            roots = self.packages
+            roots = self.mods
         else:
             roots = [root]
         result = []
@@ -118,21 +141,12 @@ class ResourceLoader(object):
 
 
 _r = ResourceLoader()
-
-_r.packages.append("res")
-for _p in config.mods.split(","):
-    _p = _p.strip()
-    if _p:
-        for _root in reversed(paths.MAPS_PATHS):
-            _path = os.path.join(_root, "mods", _p)
-            if os.path.exists(_path):
-                _r.packages.append(_path)
-                break
-
 _r.language = _get_language()
 get_text = _r.get_text
 get_texts = _r.get_texts
 get_sound_paths = _r.get_sound_paths
+update_mods_list = _r.update_mods_list
+alerts = _r.alerts
 
 ##assert _best_language_match("en") == "en"
 ##assert _best_language_match("fr_ca") == "fr"

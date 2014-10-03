@@ -126,6 +126,12 @@ Giving an order: alternate, faster method
 
 A second method to give an order consists in selecting the target with Tab (or the arrow keys) and then pressing Backspace. The default order will be given. For example, a peasant targetting a gold mine will exploit it if you press Backspace.
 
+Giving an order: using shortcuts
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To give an order with a shortcut, press Alt + A. A message will tell the list of available shortcuts for the currently controlled unit.
+Press the shortcut and the order will be executed immediately, unless a target needs to be selected.
+
 Examining the situation
 ^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -172,6 +178,19 @@ Target the unit and press Shift Backspace: the units will attack the target.
 
 Exception: if the target is a damaged building (or a repairable unit like a catapult) and you are controlling workers, they will repair the target.
 
+Blocking an exit
+^^^^^^^^^^^^^^^^
+
+New in 1.2 alpha 10.
+
+To block an exit (path, bridge), you can either:
+
+- order a unit (or several units) to block the path (give the "block" order or use back space with the exit as a target);
+- build a wall on it;
+- build any building on it.
+
+A unit or a gate will let your units pass unless there are enemies nearby.
+
 Other commands
 ^^^^^^^^^^^^^^
 
@@ -197,6 +216,8 @@ Alt + G reselects the previously given order and validate it if no additional pa
 Since SoundRTS 1.1 alpha 3, Alt + A is the same than Alt + G.
 
 Backquote (the key below Escape): console command (only in single player mode). The only useful commands at the moment are add_units (to get units or buildings instantly) and victory (to win, for example to skip a chapter). Example of a "add_units" command: "add_units a1 100 archer". New in SoundRTS 1.2 alpha 9.
+
+F8 (experimental): enter or exit zoom mode. Escape exits zoom mode too. New in SoundRTS 1.2 alpha 10. The square in divided in 3 x 3 smaller squares. A zoomed square can be used as a target for an order (go to, essentially).
 
 
 4. Multiplayer games

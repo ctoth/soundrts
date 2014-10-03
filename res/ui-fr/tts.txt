@@ -438,8 +438,6 @@
 4308 pierre
 4309 carrière
 
-4310 race aléatoire
-
 4311 a été vaincu
 4312 Vous avez perdu.
 4313 Vous êtes à présent en mode observateur.
@@ -448,3 +446,23 @@
 4316 Appuyez sur Control Maj F4 pour observer un autre joueur.
 
 4317 Entrez une commande.
+
+4319 modifier l'ordre de chargement des mods
+4320 ajouter un mod à la liste
+4321 la liste est vide
+4322 Chargement...
+
+4323 paquets
+4324 menu des paquets
+4325 ajouter un paquet
+4326 désactiver un paquet
+4327 mettre à jour un paquet
+4328 Téléchargement...
+4329 Extraction...
+4330 Mod introuvable:
+
+4331 mur
+4332 porte
+4333 bloquer
+
+4334 faction aléatoire

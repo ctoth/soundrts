@@ -5,13 +5,13 @@
 ; requirements: objects (units, upgrades) required by the object to be acquired (unit or building) or used (ability)
 
 
-; races (this part is not ready yet)
+; factions (this part is not ready yet)
 
-def human_race
-class race
+def human_faction
+class faction
 
-;def orc_race
-;class race
+;def orc_faction
+;class faction
 ;townhall great_hall
 ;farm pig_farm
 ;peasant peon
@@ -23,6 +23,7 @@ class race
 
 def parameters
 nb_of_resource_types 2 ; gold and wood
+minimal_damage 0.17
 
 
 ; resource deposits
@@ -217,7 +218,7 @@ food_cost 1
 time_cost 10
 hp_max 4
 speed 1.5
-can_build farm barracks lumbermill blacksmith scouttower townhall stables workshop dragonslair magestower temple necropolis
+can_build farm barracks lumbermill blacksmith wall gate scouttower townhall stables workshop dragonslair magestower temple necropolis
 ;can_use a_improved_wood_gathering
 range 0.8
 cooldown 1
@@ -266,7 +267,7 @@ can_use archer_weapon archer_armor archer_range
 armor 0
 cooldown 1.5
 target_types ground air
-range 3
+range 6
 is_ballistic 1
 damage 2.5
 can_upgrade_to darkarcher
@@ -283,7 +284,7 @@ can_use archer_weapon archer_armor archer_range
 armor 0
 cooldown 3
 target_types ground air
-range 5
+range 8
 is_ballistic 1
 damage 10
 is_invisible 1
@@ -328,8 +329,9 @@ food_cost 2
 time_cost 30
 hp_max 30
 speed 0.75
-sight_range 1 ; can see the adjacent squares
-special_range 1 ; can attack the adjacent squares
+range 12
+minimal_range 4
+is_ballistic 1
 cooldown 4
 damage 8
 damage_radius 0.25
@@ -347,7 +349,6 @@ time_cost 15
 airground_type air
 hp_max 30
 speed 1.75
-sight_range 1 ; can see the adjacent squares
 range 3
 cooldown 4
 damage 4
@@ -410,7 +411,6 @@ time_cost 10
 airground_type air
 hp_max 30
 speed 1.5
-sight_range 1 ; can see the adjacent squares
 is_repairable 1
 is_healable 0
 transport_capacity 8
@@ -427,7 +427,6 @@ airground_type air
 hp_max 30
 speed 1.5
 requirements magestower
-sight_range 1 ; can see the adjacent squares
 range 4.5
 cooldown 1.5
 damage 8
@@ -569,9 +568,10 @@ class building
 cost 6 2
 hp_max 33;  100/3
 time_cost 60
-sight_range 1 ; can see the adjacent squares
+bonus_height 1
 can_upgrade_to guardtower cannontower
 is_buildable_anywhere 1
+provides_survival 0
 
 def guardtower
 class building
@@ -579,8 +579,8 @@ cost 11 4
 requirements lumbermill
 hp_max 43;  130/3
 time_cost 140
-sight_range 1 ; can see the adjacent squares
-range 5
+bonus_height 1
+range 6
 is_ballistic 1
 cooldown 1.5
 damage 6 ; 6-16
@@ -588,6 +588,7 @@ target_types ground air
 armor 1 ; armor 20
 can_use archer_weapon archer_range
 is_buildable_anywhere 1
+provides_survival 0
 
 def cannontower
 class building
@@ -595,8 +596,8 @@ cost 16 5
 requirements blacksmith
 hp_max 53;  160/3
 time_cost 190
-sight_range 1 ; can see the adjacent squares
-range 6
+bonus_height 1
+range 8
 is_ballistic 1
 cooldown 4
 damage 8 ; 10-50
@@ -605,6 +606,26 @@ damage_radius 1
 splash 1
 armor 1 ; armor 20
 is_buildable_anywhere 1
+provides_survival 0
+
+def wall
+class building
+cost 7 9
+food_provided 0
+hp_max 266.7;  800/3
+time_cost 90
+is_buildable_on_exits_only 1
+provides_survival 0
+
+def gate
+class building
+cost 10 10
+food_provided 0
+hp_max 200
+time_cost 90
+is_buildable_on_exits_only 1
+is_a_gate 1
+provides_survival 0
 
 ; other units
 

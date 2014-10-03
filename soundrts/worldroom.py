@@ -1,12 +1,10 @@
 import string
 
 from constants import COLLISION_RADIUS
-from lib.log import *
-from nofloat import int_distance, int_angle, int_cos_1000, int_sin_1000
 from msgs import nb2msg
-from worldresource import Meadow
-
+from nofloat import int_distance, int_angle, int_cos_1000, int_sin_1000
 from priodict import priorityDictionary
+from worldresource import Meadow
 
 
 SPACE_LIMIT = 144
@@ -49,7 +47,6 @@ class Square(object):
         self.x = (self.xmax + self.xmin) / 2
         self.y = (self.ymax + self.ymin) / 2
 
-
     @property
     def height(self):
         if self.high_ground:
@@ -57,23 +54,31 @@ class Square(object):
         else:
             return 0
 
-    @property
-    def neighbours(self):
+    def set_neighbours(self):
         result = []
-        for dc, dr in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        for dc, dr in ((0, 1), (0, -1), (1, 0), (-1, 0),
+                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
             s = self.world.grid.get((self.col + dc, self.row + dr))
             if s is not None:
                 result.append(s)
-        return result
+        self.neighbours = result
+
+    @property
+    def building_land(self):
+        for o in self.objects:
+            if o.is_a_building_land:
+                return o
 
     def __getstate__(self):
-        odict = self.__dict__.copy() # copy the dict since we change it
-        if odict.has_key('spiral'):
-            del odict['spiral'] # remove "spiral" entry (cf find_free_space())
-        return odict
+        d = self.__dict__.copy()
+        if d.has_key('spiral'):
+            del d['spiral']
+        if d.has_key('neighbours'):
+            del d['neighbours']
+        return d
 
-    def __setstate__(self, dict):
-        self.__dict__.update(dict)   # update attributes
+    def __setstate__(self, d):
+        self.__dict__.update(d)
 
     def is_near(self, square):
         try:
@@ -86,7 +91,7 @@ class Square(object):
             o.clean()
         self.__dict__ = {}
 
-    def contains_xy(self, x, y):
+    def contains(self, x, y):
         return self.xmin <= x <= self.xmax and \
                self.ymin <= y <= self.ymax
 
@@ -117,22 +122,22 @@ class Square(object):
         end = dest
 
         # apply Dijkstra's algorithm (with priority list)
-	D = {}	# dictionary of final distances
-	P = {}	# dictionary of predecessors
-	Q = priorityDictionary()   # est.dist. of non-final vert.
-	Q[start] = (0, )
+        D = {}        # dictionary of final distances
+        P = {}        # dictionary of predecessors
+        Q = priorityDictionary()   # est.dist. of non-final vert.
+        Q[start] = (0, )
 
-	for v in Q:
-		D[v] = Q[v][0]
-		if v == end: break
-		
-		for w in G[v]:
-			vwLength = D[v] + G[v][w]
-			if w in D:
-                                pass
-			elif w not in Q or vwLength < Q[w][0]:
-				Q[w] = (vwLength, int(w.id),) # the additional value makes the result "cross-machine deterministic"
-				P[w] = v
+        for v in Q:
+            D[v] = Q[v][0]
+            if v == end: break
+            
+            for w in G[v]:
+                vwLength = D[v] + G[v][w]
+                if w in D:
+                    pass
+                elif w not in Q or vwLength < Q[w][0]:
+                    Q[w] = (vwLength, int(w.id),) # the additional value makes the result "cross-machine deterministic"
+                    P[w] = v
 
         # restore the graph
         for v in (start, end):
@@ -143,16 +148,13 @@ class Square(object):
         # exploit the results
         if end not in P:
             return None, None # no path exists
-	Path = []
-	while 1:
-		Path.append(end)
-		if end == start: break
-		end = P[end]
-	Path.reverse()
-      	return Path[1], D[dest]
-
-    def dans_le_mur(self, x, y):
-        return x < self.xmin or x > self.xmax or y < self.ymin or y > self.ymax
+        Path = []
+        while 1:
+            Path.append(end)
+            if end == start: break
+            end = P[end]
+        Path.reverse()
+        return Path[1], D[dest]
 
     combat = False
     lcombattants = []
@@ -168,13 +170,13 @@ class Square(object):
         
     def find_and_remove_meadow(self, item_type):
         if item_type.is_buildable_anywhere:
-            return self.x, self.y
+            return self.x, self.y, None
         for o in self.objects:
             if isinstance(o, Meadow):
                 x, y = o.x, o.y
                 o.delete()
-                return x, y
-        return self.x, self.y
+                return x, y, o
+        return self.x, self.y, None
 
     def update_menace(self):
         self.menace = {}
@@ -248,7 +250,7 @@ class Square(object):
         # assertion: object has collision
 ##        if not same_place and not self.can_receive(airground_type, player):
 ##            return None, None
-        if not self.dans_le_mur(x, y) and \
+        if self.contains(x, y) and \
            not self.world.collision[airground_type].would_collide(x, y):
             return x, y
         if self.world.time == 0 and (x, y) == (self.x, self.y):
@@ -260,7 +262,7 @@ class Square(object):
         else:
             spiral = square_spiral(x, y)
         for x, y in spiral:
-            if not self.dans_le_mur(x, y) and \
+            if self.contains(x, y) and \
                not self.world.collision[airground_type].would_collide(x, y):
                 return x, y
         return None, None

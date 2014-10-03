@@ -35,6 +35,7 @@ index 1
 def patrol
 title 103 115
 index 2
+shortcut p
 
 def load
 title 4278
@@ -66,6 +67,10 @@ index 5
 
 def build_phase_two ; working on a construction site
 title 101
+; no index (won't appear in the menu)
+
+def block
+title 4333 
 ; no index (won't appear in the menu)
 
 def repair
@@ -121,42 +126,52 @@ index 12
 def a_teleportation
 title 4250 4251
 alert 1328
+shortcut t
 
 def a_recall
 title 4307
 alert 1328
+shortcut r
 
 def a_holy_vision
 title 4299
 alert 1339
+shortcut v
 
 def a_conversion
 title 4274
 alert 6114
+shortcut c
 
 def a_summon_dragon
 title 4292 4231
 alert 1338
+shortcut d
 
 def a_deadly_fog
 title 4305
 alert
+shortcut f
 
 def a_raise_dead
 title 4293
 alert 1340
+shortcut r
 
 def a_resurrection
 title 4294
 alert 1339
+shortcut r
 
 def a_meteors
 title 4306
 alert
+shortcut m
 
 def a_exorcism
 title 4300
 alert
+shortcut e
 
 ; upgrades
 
@@ -242,6 +257,7 @@ exit 1331
 
 def unit
 is_a thing
+shape circle
 complete
 complete_msg $1 124
 launch_attack
@@ -258,6 +274,7 @@ noise_if_very_damaged if_me repeat 12 1173 else repeat 12 1073
 
 def building
 is_a unit
+shape square
 complete if_me 1200 else 1100
 complete_msg $1 126
 death 1047
@@ -291,21 +308,28 @@ ground gravel
 def farm
 is_a building
 title 83
+color hotpink
 noise repeat 15 1050
+shortcut f
 
 def lumbermill
 is_a building
 title 148
 noise repeat 15 1052
+shortcut l
 
 def barracks
 is_a building
 title 99
+color violetred
+shortcut b
 
 def townhall
 is_a building
 title 82
+color white
 noise repeat 6 1064
+shortcut h
 
 def keep
 is_a townhall
@@ -321,39 +345,47 @@ def blacksmith
 is_a building
 title 4213
 noise repeat 15 1300
+shortcut k
 
 def stables
 is_a building
 title 4222
 noise repeat 15 1305 1306
+shortcut s
 
 def workshop
 is_a building
 title 4226
 noise repeat 15 1321
+shortcut w
 
 def dragonslair
 is_a building
 title 4227
 noise repeat 15 1320
+shortcut d
 
 def magestower
 is_a building
 title 4228
 noise repeat 15 1319
+shortcut m
 
 def temple
 is_a building
 title 4298
+shortcut p
 
 def necropolis
 is_a building
 title 4304
+shortcut n
 
 def scouttower
 is_a building
 title 4275
 noise repeat 6 6111
+shortcut t
 
 def guardtower
 is_a building
@@ -369,11 +401,22 @@ noise repeat 6 6113
 launch_attack 1084
 attack_hit 1085
 
+def wall
+is_a building
+title 4331
+shortcut a
+
+def gate
+is_a building
+title 4332
+shortcut g
+
 ; units
 
 def peasant
 is_a walking_unit
 title 85
+color brown
 noise_when_exploiting_goldmine repeat 1.6 1038 ; 1081
 noise_when_exploiting_wood repeat 1.5 1034 1035 1036 1037
 noise_when_building repeat 4 1046 1048 1049
@@ -381,13 +424,16 @@ attack_hit 1008
 store_resource_0 1099
 store_resource_1 1098
 keyboard worker
+shortcut p
 
 def footman
 is_a walking_unit
 title 86
+color red
 attack_hit 1039 1040 1041
 attack_hit_level_1 1302
 keyboard soldier1
+shortcut f
 
 def zombie
 is_a footman
@@ -398,14 +444,17 @@ attack 1031
 def archer
 is_a walking_unit
 title 87
+color darkorange
 launch_attack 1042
 attack_hit 1043
 attack_hit_level_1 1301
 keyboard soldier2
+shortcut a
 
 def darkarcher
 is_a archer
 title 4283
+shortcut d
 
 def skeleton
 is_a archer
@@ -421,6 +470,7 @@ attack_hit 1039 1040 1041
 attack_hit_level_1 1302
 move 1303 1304
 keyboard soldier3
+shortcut k
 
 def catapult
 is_a unit
@@ -430,6 +480,7 @@ launch_attack 1084
 attack_hit 1085
 move 1082 1083
 keyboard soldier4
+shortcut c
 
 def dragon
 is_a unit
@@ -440,6 +491,7 @@ attack_hit 1085
 death 1316
 move 1317 1318
 keyboard soldier5
+shortcut d
 
 def mage
 is_a walking_unit
@@ -447,28 +499,33 @@ title 4229
 launch_attack 1322
 attack_hit 1323
 keyboard soldier6
+shortcut m
 
 def priest
 is_a walking_unit
 title 4297
 keyboard soldier6
+shortcut p
 
 def necromancer
 is_a walking_unit
 title 4303
 keyboard soldier6
+shortcut n
 
 def new_flyingmachine
 is_a unit
 title 4230
 move 1317 1318
 keyboard soldier7
+shortcut f
 
 def flyingmachine ; old flying machine
 is_a new_flyingmachine
 title 110 4230 ; offensive flying machine
 launch_attack 1322
 attack_hit 1323
+shortcut f
 
 def holy_vision
 is_a thing
@@ -488,18 +545,21 @@ noise ambient repeat .5 1339
 def goldmine
 is_a resource_deposit
 title 81
+color gold
 exhausted 1047
 ground gravel
 
 def wood
 is_a resource_deposit
 title 80
+color forestgreen
 noise repeat 6 1055 1056 1057 1058 9999 9999
 ground leaves
 
 def meadow
 is_a thing
 title 122
+color yellowgreen
 noise repeat 1.5 1059 1060 1061 1062 1063 9999 9999 9999 9999 9999 9999 9999 9999 9999 9999
 ground grass
 
@@ -512,21 +572,23 @@ noise repeat 6 1332 1333 1334 9999 9999 9999 9999 9999 9999 9999 9999 9999 9999
 
 def path
 title 84
+color dimgray
 noise repeat 15 1000
 ground grass
 when_moving_through 1091
 
 def bridge
 title 153
+color blue
 noise loop 1065
 ground wood .5 ; smaller area of effect
 when_moving_through 1092
 
 
-; races
+; factions
 
-def random_race
-title 4310
+def random_faction
+title 4334
 
-def human_race
+def human_faction
 title 4301

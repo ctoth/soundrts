@@ -1,6 +1,12 @@
-from lib.log import debug, info, warning
+import re
+
+from definitions import get_ai, rules
+from lib.log import debug, info, warning, exception
 from version import VERSION
-from worldplayerbase import *
+from worldplayerbase import Player
+import worldrandom
+from worldresource import Meadow, Deposit, Corpse
+from worldunit import Worker, BuildingSite, Soldier
 
 
 class Computer(Player):
@@ -590,7 +596,7 @@ class Computer(Player):
             self.attack_squares.append(place)
 
     def update_attack_squares(self, unit):
-        if unit.is_an_enemy(unit.cible):
+        if unit.is_an_enemy(unit.action_target):
             if unit.place not in self.attack_squares:
                 self.attack_squares.append(unit.place)
         else:

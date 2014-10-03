@@ -1,8 +1,7 @@
 import copy
 
-from nofloat import to_int
-from constants import *
-from worldentity import *
+from nofloat import to_int, PRECISION
+from worldentity import Entity
 
 
 class Deposit(Entity):
@@ -29,7 +28,8 @@ class Deposit(Entity):
         place, x, y = self.place, self.x, self.y
         self.notify("exhausted")
         self.delete()
-        Meadow(place, x, y)
+        if self.building_land:
+            self.building_land.move_to(place, x, y)
 
     def update(self): pass # necessary to allow slow update
 

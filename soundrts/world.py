@@ -1,4 +1,4 @@
-import math
+import copy
 try:
     from hashlib import md5
 except ImportError:
@@ -10,19 +10,23 @@ import string
 import time
 
 import collision
-
-import config
-from constants import *
+from constants import COLLISION_RADIUS, VIRTUAL_TIME_INTERVAL
+from definitions import rules, get_ai_names, load_ai
+from lib.log import warning, exception
+from nofloat import to_int, int_distance, PRECISION
 from paths import MAPERROR_PATH
 import res
-import stats
 from worldability import Ability
 import worldclient
-from worldexit import *
-from worldplayer import *
+from worldexit import passage
+from worldorders import ORDERS_DICT
+from worldplayerbase import Player, normalize_cost_or_resources
+from worldplayercomputer import Computer
+from worldplayerhuman import Human
 import worldrandom
-from worldroom import *
-from worldunit import *
+from worldresource import Deposit, Meadow
+from worldroom import Square
+from worldunit import Unit, Worker, Soldier, Building, Effect
 from worldupgrade import Upgrade
 
 
@@ -101,6 +105,7 @@ class World(object):
         for z in self.squares:
             for e in z.exits:
                 e.place = z
+        self.set_neighbours()
         
     _next_id = 0 # reset ID for each world to avoid big numbers
 
@@ -127,6 +132,10 @@ class World(object):
         self.current_player_number += 1
         return self.current_player_number
 
+    def get_place_from_xy(self, x, y):
+        return self.grid.get((x / self.square_width,
+                              y / self.square_width))
+
     def clean(self):
         for p in self.players + self.ex_players:
             p.clean()
@@ -135,7 +144,7 @@ class World(object):
         self.__dict__ = {}
 
     def _get_objects_values(self):
-        names_to_check = ["x", "y", "hp", "cible"]
+        names_to_check = ["x", "y", "hp", "action_target"]
         if self.time == 0:
             names_to_check += ["id", "player"]
             objects_to_check = []
@@ -147,7 +156,7 @@ class World(object):
             for name in names_to_check:
                 if hasattr(o, name):
                     value = getattr(o, name)
-                    if name in ["cible", "player"]:
+                    if name in ["action_target", "player"]:
                         if hasattr(value, "id"):
                             value = value.id
                         else:
@@ -235,7 +244,8 @@ class World(object):
 
     # move the following methods to Map
 
-    unit_base_classes = {"worker": Worker, "soldier": Soldier, "building": Building,
+    unit_base_classes = {"worker": Worker, "soldier": Soldier,
+                         "building": Building,
                          "effect": Effect,
                          "deposit": Deposit,
                          "upgrade": Upgrade, "ability": Ability}
@@ -251,7 +261,7 @@ class World(object):
             try:
                 base = self.unit_base_classes[rules.get(s, "class")[0]]
             except:
-                if rules.get(s, "class") != ["race"]:
+                if rules.get(s, "class") != ["faction"]:
                     warning("no class defined for %s", s)
                 self.unit_classes[s] = None
                 return
@@ -294,7 +304,11 @@ class World(object):
         return self._get_classnames(lambda uc: issubclass(uc.cls, Deposit) and uc.resource_type == resource_index)
 
     # map creation
-    
+
+    def set_neighbours(self):
+        for square in set(self.grid.values()):
+            square.set_neighbours()
+
     def _create_squares_and_grid(self):
         self.grid = {}
         for col in range(self.nb_columns):
@@ -303,6 +317,7 @@ class World(object):
                 self.grid[square.name] = square
                 self.grid[(col, row)] = square
                 square.high_ground = square.name in self.high_grounds
+        self.set_neighbours()
         xmax = self.nb_columns * self.square_width
         res = COLLISION_RADIUS * 2 / 3
         self.collision = {"ground": collision.CollisionMatrix(xmax, res),
@@ -322,7 +337,9 @@ class World(object):
         for z, cls, n in self.map_objects:
             C = self.unit_class(cls)
             if self.grid[z].can_receive("ground"): # avoids using the spiral
-                C(self.grid[z], n)
+                resource = C(self.grid[z], n)
+                resource.building_land = Meadow(self.grid[z])
+                resource.building_land.delete()
         for z in self._meadows():
             Meadow(self.grid[z])
 
@@ -590,7 +607,7 @@ class World(object):
             load_ai(res.get_text("ai", append=True), map.campaign_ai, map.additional_ai)
             self._load_map(map)
             self.map = map
-            self.square_width = int(self.square_width * 1000) # XXX 1000=PRECISION?
+            self.square_width = int(self.square_width * PRECISION)
             self._build_map()
             if self.objective:
                 self.introduction = [4020] + self.objective
@@ -602,9 +619,9 @@ class World(object):
             return False
         return True
 
-    def get_races(self):
+    def get_factions(self):
         return [c for c in rules.classnames()
-                if rules.get(c, "class") == ["race"]]
+                if rules.get(c, "class") == ["faction"]]
 
     # move this to Game?
 
@@ -631,7 +648,7 @@ class World(object):
         self.players.append(client.player)
         client.player.start = start
 
-    def populate_map(self, players, alliances, races=()):
+    def populate_map(self, players, alliances, factions=()):
         # add "true" (non neutral) players
         worldrandom.shuffle(self.players_starts)
         for client in players:
@@ -652,13 +669,13 @@ class World(object):
                     for other in self.players:
                         if other is not p and isinstance(other, Computer):
                             p.allied.append(other)
-        # set the races for players
-        if races:
-            for p, pr in zip(self.players, races):
-                if pr == "random_race":
-                    p.race = worldrandom.choice(self.get_races())
+        # set the factions for players
+        if factions:
+            for p, pr in zip(self.players, factions):
+                if pr == "random_faction":
+                    p.faction = worldrandom.choice(self.get_factions())
                 else:
-                    p.race = pr
+                    p.faction = pr
         # add "neutral" (independent) computers
         for start in self.computers_starts:
             self._add_player(Computer, worldclient.DummyClient(), start, True)

@@ -1,9 +1,5 @@
-import sys
-import time
-
 from constants import COLLISION_RADIUS, USE_RANGE_MARGIN
-from definitions import *
-import worldrandom
+from lib.log import exception
 
 
 class NotEnoughSpaceError(Exception): pass
@@ -16,7 +12,10 @@ class Entity(object):
     player = None
     menace = 0
     airground_type = "ground"
+    bonus_height = 0
     activity = None
+    blocked_exit = None
+    building_land = None
 
     qty = 0
     is_vulnerable = False
@@ -98,7 +97,7 @@ class Entity(object):
                 self.update_all_dicts(1)
             else:
                 # quit the world
-                self.cible = None # probably unnecessary
+                self.action_target = None # probably unnecessary
                 # (probably done by self.set_player(None))
                 # (same remark for self.cancel_all_orders(), not done here)
                 if self in current_place.world.active_objects:
@@ -109,14 +108,13 @@ class Entity(object):
             if new_place is not None:
                 if current_place is not None:
                     for o in current_place.objects:
-                        o.react_go_through(self, exit1)
+                        o.react_departure(self, exit1)
                 if self.is_vulnerable: # don't react to effects (?)
                     for p in self.world.players:
                         if p.is_an_enemy(self) and self in p.perception:
-                            p.react_arrives(self, exit2)
                             for u in p.units:
-                                u.react_arrives(self, exit2)
-                self.cible = None
+                                u.react_arrival(self)
+                self.action_target = None
                 self.react_self_arrival()
         if self.place is not None and not self.is_inside and self.collision:
             self.world.collision[self.airground_type].add(self.x, self.y)
@@ -124,6 +122,7 @@ class Entity(object):
             self.is_moving = True
 
     def delete(self):
+        self.unblock()
         self.move_to(None, 0, 0)
 
     def __init__(self, place, x=None, y=None, o=90):
@@ -151,7 +150,7 @@ class Entity(object):
     def choose_enemy(self, someone=None):
         pass
 
-    def react_go_through(self, other, door):
+    def react_departure(self, other, door):
         pass
     def react_self_arrival(self):
         pass
@@ -170,7 +169,10 @@ class Entity(object):
 
     def use_range(self, a): # use_distance? XXXXXXXXXXX
         if a.is_an_enemy(self) and a.range is not None:
-            return max(a.radius + USE_RANGE_MARGIN, a.range) + self.radius
+            range = a.range
+            if a.is_ballistic and a.height > self.height:
+                range += a.is_ballistic
+            return max(a.radius + USE_RANGE_MARGIN, range) + self.radius
         else:
             return a.radius + self.radius + USE_RANGE_MARGIN
 
@@ -191,14 +193,23 @@ class Entity(object):
         return result
 
     def be_used_by(self, a):
-        a.cible = None
+        a.action_target = None
         a._flee_or_fight_if_enemy()
 
-    def dans_le_mur(self, x, y):
-        return False
+    def contains(self, x, y):
+        return True
 
     def find_free_space(self, airground_type, x, y, *args, **kargs):
         if self.transport_capacity: # the entity is a transport
             return x, y
         else:
             return None, None
+
+    def block(self, e):
+        self.blocked_exit = e
+        e.add_blocker(self)
+
+    def unblock(self):
+        if self.blocked_exit:
+            self.blocked_exit.remove_blocker(self)
+            self.blocked_exit = None

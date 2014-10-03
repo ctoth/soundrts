@@ -13,36 +13,34 @@ except:
     from lib.log import warning
     warning("couldn't set locale")
 
-import os.path
+import os
 import pickle
-import random
-import re
 import sys
 import time
 import urllib
 
-import pygame
-
-from lib.log import *
-from clientmedia import *
-from clientmenu import *
-from clientserver import *
-from definitions import style
-from clientversion import *
+from clientmedia import voice, init_media, close_media
+from clientmenu import Menu, input_string, END_LOOP
+from clientserver import connect_and_play, start_server_and_connect
+from clientversion import revision_checker
 import config
-from game import TrainingGame, ReplayGame
+from constants import MAIN_METASERVER_URL
+from definitions import style
+from game import TrainingGame, ReplayGame, reload_all
+from lib.log import exception
 from multimaps import worlds_multi
 from msgs import nb2msg
-from paths import REPLAYS_PATH
+from package import get_packages, get_all_packages_paths
+from paths import REPLAYS_PATH, SAVE_PATH
 import res
 from singlemaps import campaigns
-import tts
-from version import COMPATIBILITY_VERSION
+import stats
+from version import compatibility_version
 
 
 _ds = open("cfg/default_servers.txt").readlines()
 _ds = [_x.split() for _x in _ds]
-DEFAULT_SERVERS = [" ".join(["0"] + _x[:1] + [COMPATIBILITY_VERSION] + _x[1:]) for _x in _ds]
+DEFAULT_SERVERS = [" ".join(["0"] + _x[:1] + [compatibility_version()] + _x[1:]) for _x in _ds]
 SERVERS_LIST_HEADER = "SERVERS_LIST"
 SERVERS_LIST_URL = MAIN_METASERVER_URL + "servers.php?header=%s&include_ports=1" % SERVERS_LIST_HEADER
 
@@ -72,7 +70,7 @@ class Application(object):
                 warning("line not recognized from the metaserver: %s", s)
                 continue
             nb += 1
-            if version == COMPATIBILITY_VERSION:
+            if version == compatibility_version():
                 menu.append([login, 4073, login], (connect_and_play, ip, port))
         menu.title = nb2msg(len(menu.choices)) + [4078] + nb2msg(nb) + [4079]
         menu.append([4075, 4076], None)
@@ -88,7 +86,6 @@ class Application(object):
         if config.login == "player":
             voice.alert([4235]) # type your new login
             self.modify_login()
-            self.save_config_changes()
         menu = Menu([4030], [
             ([4119], self.choose_server_ip_in_a_list),
             ([4120], self.enter_server_ip),
@@ -97,7 +94,7 @@ class Application(object):
         menu.run()
 
     def restore_game(self):
-        n = config.SAVE_PATH
+        n = SAVE_PATH
         if not os.path.exists(n):
             voice.alert([1029]) # hostile sound
             return
@@ -122,33 +119,33 @@ class Application(object):
 
     def training_menu_invite(self, ai_type):
         self.players.append(ai_type)
-        self.races.append("random_race")
+        self.factions.append("random_faction")
         self.menu.update_menu(self.build_training_menu_after_map())
 
     def training_menu_after_map(self, m):
-        style.load(res.get_text("ui/style", append=True, locale=True)) # XXX: won't work with races defined in the map
+        style.load(res.get_text("ui/style", append=True, locale=True)) # XXX: won't work with factions defined in the map
         self.players = [config.login]
-        self.races = ["random_race"]
+        self.factions = ["random_faction"]
         self.map = m
         self.menu = self.build_training_menu_after_map()
         self.menu.loop()
 
     def start_training_game(self):
         game = TrainingGame(self.map, self.players)
-        game.races = self.races
+        game.factions = self.factions
         game.run()
         return END_LOOP
 
-    def set_race(self, pn, r):
-        self.races[pn] = r
+    def set_faction(self, pn, r):
+        self.factions[pn] = r
         self.menu.update_menu(self.build_training_menu_after_map())
 
-    def _add_race_menu(self, menu, pn, p, pr):
-        if len(self.map.races) > 1:
-            for r in ["random_race"] + self.map.races:
+    def _add_faction_menu(self, menu, pn, p, pr):
+        if len(self.map.factions) > 1:
+            for r in ["random_faction"] + self.map.factions:
                 if r != pr:
                     menu.append([p,] + style.get(r, "title"),
-                                (self.set_race, pn, r))
+                                (self.set_faction, pn, r))
 
     def build_training_menu_after_map(self):
         menu = Menu()
@@ -158,8 +155,8 @@ class Application(object):
                                        "aggressive"))
         if len(self.players) >= self.map.nb_players_min:
             menu.append([4059], self.start_training_game)
-        for pn, (p, pr) in enumerate(zip(self.players, self.races)):
-            self._add_race_menu(menu, pn, p, pr)
+        for pn, (p, pr) in enumerate(zip(self.players, self.factions)):
+            self._add_faction_menu(menu, pn, p, pr)
         menu.append([4048, 4060], END_LOOP)
         return menu
 
@@ -181,6 +178,41 @@ class Application(object):
         menu.append([4041], None)
         menu.run()
 
+    def manage_packages(self):
+
+        def add():
+            menu = Menu([4325])
+            for p in get_packages():
+                if not p.is_active:
+                    menu.append([p.name], (p.add, voice))
+            menu.append([4118], None)
+            menu.run()
+
+        def deactivate():
+            menu = Menu([4326])
+            for p in get_packages():
+                if p.is_active:
+                    menu.append([p.name], p.deactivate)
+            menu.append([4118], None)
+            menu.run()
+
+        def update():
+            menu = Menu([4327])
+            for p in get_packages():
+                if p.is_active:
+                    menu.append([p.name], (p.update, voice))
+            menu.append([4118], None)
+            menu.run()
+
+        menu = Menu([4324], [
+            ([4325], add),
+            ([4326], deactivate),
+            ([4327], update),
+            ([4076], END_LOOP),
+            ])
+        menu.loop()
+        reload_all()
+
     def modify_login(self):
         login = input_string([4235, 4236], "^[a-zA-Z0-9]$") # type your new
                                         # login ; use alphanumeric characters
@@ -191,14 +223,48 @@ class Application(object):
         else:
             voice.alert([4239, login]) # new login:
             config.login = login
+            config.save()
 
-    def save_config_changes(self):
-        config.save()
-        return END_LOOP
+    def modify_default_mods(self):
 
-    def cancel_config_changes(self):
-        config.load()
-        return END_LOOP
+        def available_mods():
+            result = []
+            for path in get_all_packages_paths():
+                mods_path = os.path.join(path, "mods")
+                for mod in os.listdir(mods_path):
+                    if os.path.isdir(os.path.join(mods_path, mod)) \
+                       and mod not in result and mod not in mods:
+                        result.append(mod)
+            return result
+
+        def select_next_mod(parent):
+
+            def add_mod(mod):
+                if mod not in mods:
+                    mods.append(mod)
+                    parent.title = mods
+
+            menu = Menu([4320] + mods)
+            for mod in available_mods():
+                menu.append([mod], (add_mod, mod))
+            menu.append([4118], None)
+            menu.run()
+
+        def save():
+            previous_mods = config.mods
+            config.config_mods = ",".join(mods)
+            config.mods = config.config_mods
+            config.save()
+            if config.mods != previous_mods:
+                reload_all()
+            return END_LOOP
+
+        mods = []
+        menu = Menu([4321]) # the list is empty
+        menu.append([4320], (select_next_mod, menu))
+        menu.append([4096], save)
+        menu.append([4098], END_LOOP)
+        menu.loop()
 
     def main(self):
         single_player_menu = Menu([4030],
@@ -217,8 +283,9 @@ class Application(object):
             ])
         options_menu = Menu([4086], [
             ([4087], self.modify_login),
-            ([4096, 4097], self.save_config_changes),
-            ([4098, 4099], self.cancel_config_changes),
+            ([4319], self.modify_default_mods),
+            [[4323], self.manage_packages],
+            ([4118], END_LOOP),
             ])
         main_menu = Menu([4029, 4030], [
             [[4031, 4032], single_player_menu.loop],
@@ -245,10 +312,7 @@ def main():
         except:
             exception("error")
     finally:
-        sound_stop()
-        # speech dispatcher must be closed or the program won't close
-        if hasattr(tts._tts, "_client"):
-            tts._tts._client.close()
+        close_media()
 
 
 if __name__ == "__main__":

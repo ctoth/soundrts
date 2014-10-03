@@ -1,17 +1,15 @@
 import asyncore
-import os.path
 import re
 import sys
 import socket
-import time
 import urllib
 
-from lib.log import *
-
-from serverclient import *
-from serverroom import *
-from ticker import *
-from version import COMPATIBILITY_VERSION
+from constants import MAIN_METASERVER_URL
+from lib.log import debug, info, warning, exception
+from serverclient import ConnectionToClient
+from serverroom import InTheLobby, OrganizingAGame, Playing
+from ticker import Ticker
+from version import compatibility_version
 
 import config
 
@@ -77,8 +75,8 @@ class Server(asyncore.dispatcher):
         return client.address[0] == "127.0.0.1" and client.login == self.login
 
     def remove_client(self, client):
-	info("disconnect: %s" % client.login)
-	client.is_disconnected = True
+        info("disconnect: %s" % client.login)
+        client.is_disconnected = True
         if client in self.clients: # not anonymous
             self.clients.remove(client)
             for c in self.players_not_playing():
@@ -146,7 +144,7 @@ class Server(asyncore.dispatcher):
     def _register(self):
         try:
             s = urllib.urlopen(REGISTER_URL + "?version=%s&login=%s&ip=%s&port=%s" %
-                               (COMPATIBILITY_VERSION, self.login, self.ip,
+                               (compatibility_version(), self.login, self.ip,
                                 config.port)).read()
         except:
             s = "couldn't access to the metaserver"

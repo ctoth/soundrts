@@ -2,18 +2,35 @@ import copy
 import inspect
 import re
 import string
-import sys
-import time
 
-import config
-from constants import *
-import group
-from lib.log import *
-from msgs import encode_msg
-import stats
-import worldrandom
-from worldunit import *
+from constants import MAX_NB_OF_RESOURCE_TYPES
+from definitions import rules, style
+from lib.log import debug, warning
+from msgs import encode_msg, nb2msg
+from nofloat import PRECISION
+from worldentity import NotEnoughSpaceError, Entity
+from worldresource import Corpse
 from worldupgrade import Upgrade
+
+
+class ZoomTarget(Entity):
+    
+    def __init__(self, i, player):
+        # Entity.__init__() isn't called because ZoomTarget isn't
+        # a part of the world. Entity provides use_range().
+        self.id = i
+        _, place_id, x, y = i.split("-")
+        self.x = int(x)
+        self.y = int(y)
+        self.place = player.get_object_by_id(place_id)
+        self.title = self.place.title # TODO: full zoom title
+
+    @property
+    def building_land(self):
+        # TODO: improve this when ZoomTarget is replaced
+        # with Subsquare and there is 1 building land or resource
+        # in each subsquare. 
+        return self.place.building_land # XXX imprecise
 
 
 class Objective(object):
@@ -41,7 +58,7 @@ class Player(object):
     observer_if_defeated = False
     has_victory = False
     has_been_defeated = False
-    race = "human_race"
+    faction = "human_faction"
 
     group = ()
     group_had_enough_mana = False # used to warn if not enough mana
@@ -69,6 +86,7 @@ class Player(object):
         self.places_to_explore = []
         self.observed_before_squares = []
         self.observed_squares = {}
+        self.observed_objects = {}
         self.detected_squares = {}
         self.cloaked_squares = {}
         self.allied_control = (self, )
@@ -76,16 +94,10 @@ class Player(object):
         self._known_enemies_time = {}
         self._enemy_menace = {}
         self._enemy_menace_time = {}
-        self.enemy_doors = set()
-        self._affected_squares = []
 
     @property
     def is_playing(self):
         return not (self.has_victory or self.has_been_defeated)
-
-    def react_arrives(self, someone, door=None):
-        if door is not None:
-            self.enemy_doors.add(door)
 
     def known_enemies(self, place):
         # assert: "memory is not included"
@@ -125,9 +137,16 @@ class Player(object):
                 while self.level(upgrade_name) < p.level(upgrade_name):
                     self.world.unit_class(upgrade_name).upgrade_player(self)
 
+    def _update_observed_objects(self):
+        for o in self.observed_objects.keys():
+            if self.observed_objects[o] < self.world.time:
+                del self.observed_objects[o]
+                self.update_perception_of_object(o)
+
     def update(self):
         self._update_storage_bonus()
         self._update_allied_upgrades()
+        self._update_observed_objects()
         self.play()
 
     def level(self, type_name):
@@ -148,6 +167,8 @@ class Player(object):
         return True
 
     def get_object_by_id(self, i):
+        if isinstance(i, str) and i.startswith("zoom"):
+            return ZoomTarget(i, self)
         if i in self.world.grid:
             return self.world.grid[i]
         if i in self.world.objects:
@@ -166,7 +187,9 @@ class Player(object):
             return False
         for p in self.allied_vision:
             if o.player is p or (
-            o.place in p.observed_squares and (
+            (o.place in p.observed_squares or
+             o in p.observed_objects)
+             and (
                 not o.is_invisible_or_cloaked() or
                 o.place in p.detected_squares)):
                 return True
@@ -177,17 +200,20 @@ class Player(object):
         # doesn't work for invisible units (hints are given in Starcraft though)
         if o.is_invisible_or_cloaked(): return # don't observe dark archers
         if not self.is_perceiving(o):
-            self._remember(o)
+            self.observed_objects[o] = self.world.time + 3000
+            self.update_perception_of_object(o)
 
-    def _update_dict(self, dct, squares, inc):
+    def _update_dict(self, dct, squares, inc, affected_squares):
         for square in squares:
             if square not in dct:
                 dct[square] = 0
-                self._affected_squares.append(square)
+                if square not in affected_squares:
+                    affected_squares.append(square)
             dct[square] += inc
             if dct[square] == 0:
                 del dct[square]
-                self._affected_squares.append(square)
+                if square not in affected_squares:
+                    affected_squares.append(square)
             else:
                 assert dct[square] > 0
 
@@ -200,31 +226,37 @@ class Player(object):
                     if m.initial_model is o:
                         # forget it because you are perceiving it again
                         self._forget(m)
+                if self.is_an_enemy(o):
+                    for u in self.units:
+                        u.react_arrival(o)
         elif o in self.perception:
             # remove from perception
             self.perception.remove(o)
             if o.player is not self and o.place is not None:
                 self._remember(o)
 
-    def _update_all_dicts(self, unit, inc):
-        self._affected_squares = []
-        self._update_dict(self.observed_squares, unit.get_observed_squares(), inc)
+    def _update_all_dicts(self, unit, inc, affected_squares):
+        self._update_dict(self.observed_squares, unit.get_observed_squares(), inc, affected_squares)
         if inc > 0:
             for square in unit.get_observed_squares():
                 if square not in self.observed_before_squares:
                     self.observed_before_squares.append(square)
         if unit.is_a_detector:
-            self._update_dict(self.detected_squares, [unit.place], inc)
-        if unit.is_a_cloaker: # XXX allied vision != allied cloaking
-            self._update_dict(self.cloaked_squares, [unit.place], inc)
+            self._update_dict(self.detected_squares, [unit.place], inc, affected_squares)
+        # assertion: self.allied_vision == self.allied_cloaking
+        if unit.is_a_cloaker:
+            self._update_dict(self.cloaked_squares, [unit.place], inc, affected_squares)
 
     def update_all_dicts(self, unit, inc):
         if unit.place is None: return
+        # TODO MAYBE: make the difference between affected squares
+        # for allies (sight and detectors) and affected squares for
+        # non allies (cloakers). 
+        affected_squares = []
         for p in self.allied_vision:
-            p._update_all_dicts(unit, inc)
-#        for p in self.allied_vision: # XXX (optimized but incorrect for cloaker)
-        for p in self.world.players: # necessary for cloaker (XXX not optimized though)
-            for square in self._affected_squares:
+            p._update_all_dicts(unit, inc, affected_squares)
+        for p in self.world.players: # necessary for cloakers
+            for square in affected_squares:
                 for o in square.objects:
                     p.update_perception_of_object(o)
                 if square in p.observed_squares:
@@ -342,16 +374,16 @@ class Player(object):
     nb_buildings_killed = 0
 
     def equivalent(self, tn):
-        if rules.get(self.race, tn):
-            return rules.get(self.race, tn)[0]
+        if rules.get(self.faction, tn):
+            return rules.get(self.faction, tn)[0]
         return tn
         
     def init_position(self):
 
         def equivalent_type(t):
             tn = getattr(t, "type_name", "")
-            if rules.get(self.race, tn):
-                return self.world.unit_class(rules.get(self.race, tn)[0])
+            if rules.get(self.faction, tn):
+                return self.world.unit_class(rules.get(self.faction, tn)[0])
             return t
 
         self.resources = self.start[0][:]
@@ -365,14 +397,16 @@ class Player(object):
                 self.upgrades.append(type_.type_name) # XXX type_.upgrade_player(self)?
             else:
                 place = self.world.grid[place]
-                x, y = place.find_and_remove_meadow(type_)
+                x, y, land = place.find_and_remove_meadow(type_)
                 x, y = place.find_free_space(type_.airground_type, x, y)
                 if x is not None:
-                    type_(self, place, x, y)
+                    unit = type_(self, place, x, y)
+                    unit.building_land = land
+                        
         self.triggers = self.start[2]
 
-        if rules.get(self.race, getattr(self, "AI_type", "")):
-            self.set_ai(rules.get(self.race, self.AI_type)[0])
+        if rules.get(self.faction, getattr(self, "AI_type", "")):
+            self.set_ai(rules.get(self.faction, self.AI_type)[0])
 
     def store(self, _type, qty):
         qty += self.storage_bonus[_type]
@@ -459,6 +493,7 @@ class Player(object):
             else:
                 cls = self.world.unit_class(x)
                 for _ in range(multiplicator):
+                    land = None
                     if from_corpse:
                         corpse = None
                         for o in sq.objects:
@@ -471,9 +506,10 @@ class Player(object):
                         else:
                             return
                     else:
-                        x, y = sq.find_and_remove_meadow(cls)
+                        x, y, land = sq.find_and_remove_meadow(cls)
                     try:
                         u = cls(self, sq, x, y)
+                        u.building_land = land
                     except NotEnoughSpaceError:
                         break
                     if decay:
@@ -495,7 +531,7 @@ class Player(object):
 
     def lang_no_building_left(self, unused_args):
         for u in self.units:
-            if isinstance(u, Building):
+            if u.provides_survival:
                 return False
         return True
 
@@ -603,11 +639,11 @@ class Player(object):
     def lang_ai(self, args):
         self.set_ai(args[0])
 
-    def lang_race(self, args):
-        if args and args[0] in self.world.get_races():
-            self.race = args[0]
+    def lang_faction(self, args):
+        if args and args[0] in self.world.get_factions():
+            self.faction = args[0]
         else:
-            warning("unknown race: %s", " ".join(args))
+            warning("unknown faction: %s", " ".join(args))
 
     @property
     def available_food(self):
@@ -670,9 +706,10 @@ class Player(object):
     def cmd_toggle_cheatmode(self, unused_args=None):
         if self.cheatmode:
             self.cheatmode = False
-            self._update_dict(self.observed_squares, self.world.squares, -1)
-            self._update_dict(self.detected_squares, self.world.squares, -1)
-            for sq in self.world.squares:
+            affected = []
+            self._update_dict(self.observed_squares, self.world.squares, -1, affected)
+            self._update_dict(self.detected_squares, self.world.squares, -1, affected)
+            for sq in affected:
                 for o in sq.objects:
                     o.update_perception()
             # assertion:
@@ -683,9 +720,10 @@ class Player(object):
                     self.memory.remove(o)
         else:
             self.cheatmode = True
-            self._update_dict(self.observed_squares, self.world.squares, 1)
-            self._update_dict(self.detected_squares, self.world.squares, 1)
-            for sq in self.world.squares:
+            affected = []
+            self._update_dict(self.observed_squares, self.world.squares, 1, affected)
+            self._update_dict(self.detected_squares, self.world.squares, 1, affected)
+            for sq in affected:
                 for o in sq.objects:
                     o.update_perception()
 
@@ -708,3 +746,7 @@ class Player(object):
         for p in self.allied_control:
             result.extend(p.units)
         return result
+
+    def cmd_neutral_quit(self, unused_args):
+        if self in self.world.players:
+            self.quit_game()

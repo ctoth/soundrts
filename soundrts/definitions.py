@@ -1,8 +1,8 @@
 import re
 
-from nofloat import *
-from lib.log import *
-from lib.defs import *
+from nofloat import to_int
+from lib.log import debug, warning
+from lib.defs import preprocess
 
 
 class _Definitions:
@@ -116,8 +116,8 @@ class _Definitions:
 
 _precision_properties = (
                 "armor",
-                "damage",
-                "damage_radius", "range",
+                "damage", "minimal_damage",
+                "damage_radius", "range", "minimal_range",
                 "decay",
                 "qty", "extraction_qty",
                 "hp_max",
@@ -149,8 +149,7 @@ class Rules(_Definitions):
                     "is_undead",
                     "is_a_building_land",
                     "is_buildable_anywhere",
-                    "special_range",
-                    "sight_range",
+                    "bonus_height",
                     "transport_capacity",
                     "transport_volume",
                     "is_invisible",
@@ -159,8 +158,11 @@ class Rules(_Definitions):
                     "is_a_cloaker",
                     "universal_notification",
                     "presence",
+                    "provides_survival",
                     "is_ballistic",
                     "is_teleportable",
+                    "is_a_gate",
+                    "is_buildable_on_exits_only",
                     )
     precision_properties = _precision_properties_extended
     int_list_properties = ("storable_resource_types",)
@@ -169,7 +171,7 @@ class Rules(_Definitions):
     def load(self, *strings):
         self._dict = {}
         for s in strings:
-            s = re.sub(r"^[ \t]*class +faction\b", "class race", s, flags=re.M)
+            s = re.sub(r"^[ \t]*class +race\b", "class faction", s, flags=re.M)
             self.read(s)
         self.apply_inheritance(expanded_is_a=True)
 
