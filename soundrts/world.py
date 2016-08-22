@@ -1,4 +1,6 @@
 import copy
+from soundrts.lib.sound import distance
+from soundrts.lib.nofloat import square_of_distance
 try:
     from hashlib import md5
 except ImportError:
@@ -9,15 +11,15 @@ import re
 import string
 import time
 
-import collision
-from constants import COLLISION_RADIUS, VIRTUAL_TIME_INTERVAL
+from lib import collision
+from constants import COLLISION_RADIUS, VIRTUAL_TIME_INTERVAL, PROFILE
 from definitions import rules, get_ai_names, load_ai
-from lib.log import warning, exception
-from nofloat import to_int, int_distance, PRECISION
+from lib.log import warning, exception, info
+from lib.nofloat import to_int, int_distance, PRECISION
 from paths import MAPERROR_PATH
 import res
 from worldability import Ability
-import worldclient
+from worldclient import DummyClient
 from worldexit import passage
 from worldorders import ORDERS_DICT
 from worldplayerbase import Player, normalize_cost_or_resources
@@ -53,6 +55,16 @@ class Type(object):
         self.__name__ = name
         self.type_name = name
         self.cls = bases[0]
+        if "sight_range" in dct:
+            del dct["sight_range"]
+            dct["bonus_height"] = 1
+            info("in %s: replacing sight_range 1 with bonus_height 1", name)
+        if "special_range" in dct:
+            del dct["special_range"]
+            dct["range"] = 12 * PRECISION
+            dct["minimal_range"] = 4 * PRECISION 
+            dct["is_ballistic"] = 1
+            info("in %s: replacing special_range 1 with range 12, minimal_range 4 and is_ballistic 1", name)
         self.dct = dct
         self.init_dict(self)
 
@@ -131,6 +143,11 @@ class World(object):
     def get_next_player_number(self):
         self.current_player_number += 1
         return self.current_player_number
+
+    def get_objects(self, x, y, radius, filter=lambda x: True):
+        radius_2 = radius * radius
+        return [o for z in self.squares for o in z.objects
+                if filter(o) and square_of_distance(x, y, o.x, o.y) <= radius_2]
 
     def get_place_from_xy(self, x, y):
         return self.grid.get((x / self.square_width,
@@ -603,8 +620,8 @@ class World(object):
             except:
                 warning("cannot remove map error file")
         try:
-            rules.load(res.get_text("rules", append=True), map.campaign_rules, map.additional_rules)
-            load_ai(res.get_text("ai", append=True), map.campaign_ai, map.additional_ai)
+            rules.load(res.get_text_file("rules", append=True), map.campaign_rules, map.additional_rules)
+            load_ai(res.get_text_file("ai", append=True), map.campaign_ai, map.additional_ai)
             self._load_map(map)
             self.map = map
             self.square_width = int(self.square_width * PRECISION)
@@ -678,22 +695,36 @@ class World(object):
                     p.faction = pr
         # add "neutral" (independent) computers
         for start in self.computers_starts:
-            self._add_player(Computer, worldclient.DummyClient(), start, True)
+            self._add_player(Computer, DummyClient(), start, True)
         # init all players positions
         for player in self.players:
             player.init_position()
         self.admin = players[0] # define get_admin()?
 
     def loop(self):
-        while(self.__dict__): # cf clean()
-            if not self._command_queue.empty():
-                player, order = self._command_queue.get()
-                try:
-                    player.execute_command(order)
-                except:
-                    exception("")
-            else:
-                time.sleep(.01)
+        def _loop():
+            while(self.__dict__): # cf clean()
+                if not self._command_queue.empty():
+                    player, order = self._command_queue.get()
+                    try:
+                        player.execute_command(order)
+                    except:
+                        exception("")
+                else:
+                    time.sleep(.01)
+        if PROFILE:
+            import cProfile
+            cProfile.runctx("_loop()", globals(), locals(), "world_profile.tmp")
+            import pstats
+            for n in ("interface_profile.tmp", "world_profile.tmp"):
+                p = pstats.Stats(n)
+                p.strip_dirs()
+                p.sort_stats('time', 'cumulative').print_stats(30)
+                p.print_callers(30)
+                p.print_callees(20)
+                p.sort_stats('cumulative').print_stats(50)
+        else:
+            _loop()
 
     def queue_command(self, player, order):
         self._command_queue.put((player, order))

@@ -8,10 +8,11 @@ from constants import MAIN_METASERVER_URL
 from lib.log import debug, info, warning, exception
 from serverclient import ConnectionToClient
 from serverroom import InTheLobby, OrganizingAGame, Playing
-from ticker import Ticker
-from version import compatibility_version
+from lib.ticker import Ticker
+from version import VERSION
 
 import config
+import options
 
 
 REGISTER_INTERVAL = 10 * 60 # register server every 10 minutes
@@ -28,7 +29,7 @@ class Server(asyncore.dispatcher):
         asyncore.dispatcher.__init__(self)
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
-        self.bind(("", config.port))
+        self.bind(("", options.port))
         self.listen(5)
         self.login = config.login
         self.clients = []
@@ -80,7 +81,8 @@ class Server(asyncore.dispatcher):
         if client in self.clients: # not anonymous
             self.clients.remove(client)
             for c in self.players_not_playing():
-                c.send_msg([client.login, 4259]) # ... has just disconnected
+                if client.is_compatible(c):
+                    c.send_msg([client.login, 4259]) # ... has just disconnected
             self.update_menus()
         if isinstance(client.state, Playing):
             client.cmd_abort_game([])
@@ -144,8 +146,8 @@ class Server(asyncore.dispatcher):
     def _register(self):
         try:
             s = urllib.urlopen(REGISTER_URL + "?version=%s&login=%s&ip=%s&port=%s" %
-                               (compatibility_version(), self.login, self.ip,
-                                config.port)).read()
+                               (VERSION, self.login, self.ip,
+                                options.port)).read()
         except:
             s = "couldn't access to the metaserver"
         if s:
@@ -173,8 +175,16 @@ class Server(asyncore.dispatcher):
         for c in self.clients:
             c.send_menu()
 
-    def available_players(self):
-        return [x for x in self.clients if isinstance(x.state, InTheLobby)]
+    def available_players(self, client=None):
+        lst = []
+        for x in self.clients:
+            if isinstance(x.state, InTheLobby):
+                if client:
+                    if x.is_compatible(client):
+                        lst.append(x)
+                else:
+                    lst.append(x)
+        return lst
 
     def game_admins(self):
         return [x for x in self.clients if isinstance(x.state, OrganizingAGame)]

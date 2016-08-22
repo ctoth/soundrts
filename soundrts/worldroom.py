@@ -1,9 +1,9 @@
 import string
 
 from constants import COLLISION_RADIUS
-from msgs import nb2msg
-from nofloat import int_distance, int_angle, int_cos_1000, int_sin_1000
-from priodict import priorityDictionary
+from lib.msgs import nb2msg
+from lib.nofloat import int_distance, int_angle, int_cos_1000, int_sin_1000
+from lib.priodict import priorityDictionary
 from worldresource import Meadow
 
 
@@ -82,7 +82,7 @@ class Square(object):
 
     def is_near(self, square):
         try:
-            return (abs(self.col - square.col), abs(self.row - square.row)) in ((0, 1), (1, 0))
+            return (abs(self.col - square.col), abs(self.row - square.row)) in ((0, 1), (1, 0), (1, 1))
         except AttributeError: # not a square
             return False
 
@@ -92,18 +92,18 @@ class Square(object):
         self.__dict__ = {}
 
     def contains(self, x, y):
-        return self.xmin <= x <= self.xmax and \
-               self.ymin <= y <= self.ymax
+        return self.xmin <= x < self.xmax and \
+               self.ymin <= y < self.ymax
 
-    def shortest_path_to(self, dest):
+    def shortest_path_to(self, dest, player=None):
 ##        if len(self.exits) == 1: # small optimization
 ##            return self.exits[0]
-        return self._shortest_path_to(dest)[0]
+        return self._shortest_path_to(dest, player)[0]
 
-    def shortest_path_distance_to(self, dest):
-        return self._shortest_path_to(dest)[1]
+    def shortest_path_distance_to(self, dest, player=None):
+        return self._shortest_path_to(dest, player)[1]
 
-    def _shortest_path_to(self, dest):
+    def _shortest_path_to(self, dest, player):
         """Returns the next exit to the shortest path from self to dest
         and the distance of the shortest path from self to dest."""
         # TODO: remove the duplicate exits in the graph
@@ -128,10 +128,14 @@ class Square(object):
         Q[start] = (0, )
 
         for v in Q:
+            if hasattr(v, "is_blocked") and v.is_blocked(player, ignore_enemy_walls=True):
+                continue
             D[v] = Q[v][0]
             if v == end: break
             
             for w in G[v]:
+                if hasattr(w, "is_blocked") and w.is_blocked(player, ignore_enemy_walls=True):
+                    continue
                 vwLength = D[v] + G[v][w]
                 if w in D:
                     pass
@@ -155,10 +159,6 @@ class Square(object):
             end = P[end]
         Path.reverse()
         return Path[1], D[dest]
-
-    combat = False
-    lcombattants = []
-    last_information = 0
 
     def find_nearest_meadow(self, unit):
         def _d(o):
@@ -206,13 +206,13 @@ class Square(object):
         return balance
 
     def north_side(self):
-        return self, self.x, self.ymax, -90
+        return self, self.x, self.ymax - 1, -90
 
     def south_side(self):
         return self, self.x, self.ymin, 90
 
     def east_side(self):
-        return self, self.xmax, self.y, 180
+        return self, self.xmax - 1, self.y, 180
 
     def west_side(self):
         return self, self.xmin, self.y, 0

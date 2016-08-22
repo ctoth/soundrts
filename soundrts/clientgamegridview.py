@@ -1,8 +1,8 @@
 import pygame
 
-from clientmediascreen import get_screen, draw_line, draw_rect
+from lib.screen import get_screen, draw_line, draw_rect
 from lib.log import warning
-from nofloat import square_of_distance
+from lib.nofloat import square_of_distance
 
 
 R = int(0.5 * 10)
@@ -38,6 +38,10 @@ class GridView(object):
             draw_line(color, (x * self.square_view_width, 0), (x * self.square_view_width, (self.interface.ycmax + 1)* self.square_view_height))
         for y in range(0, self.interface.ycmax + 2):
             draw_line(color, (0, y * self.square_view_height), ((self.interface.xcmax + 1) * self.square_view_width, y * self.square_view_height))
+
+    def active_square_center_xy_coords(self):
+        xc, yc = self.interface.coords_in_map(self.interface.place)
+        return (xc + .5) * self.square_view_width, self.ymax - (yc + .5) * self.square_view_height
 
     def active_square_view_display(self):
         xc, yc = self.interface.coords_in_map(self.interface.place)

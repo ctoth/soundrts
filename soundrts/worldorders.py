@@ -1,9 +1,10 @@
 from constants import MAX_NB_OF_RESOURCE_TYPES, ORDERS_QUEUE_LIMIT, VIRTUAL_TIME_INTERVAL
 from definitions import rules
-from nofloat import to_int
+from lib.nofloat import to_int, PRECISION
 import worldrandom
 from worldresource import Meadow, Deposit, Corpse
 from worldroom import Square
+from soundrts.lib.nofloat import square_of_distance
 
 
 class Order(object):
@@ -239,7 +240,8 @@ class ComplexOrder(Order):
         return type_name in cls.allowed_types(unit) \
                and type_name not in unit.player.forbidden_techs \
                and (not unit.orders or unit.orders[-1].can_be_followed) \
-               and cls.additional_condition(unit, type_name)
+               and cls.additional_condition(unit, type_name) \
+               and unit.player.check_count_limit(type_name)
 
     @classmethod
     def is_allowed(cls, unit, type_name, *args):
@@ -385,6 +387,7 @@ class UpgradeToOrder(ProductionOrder):
         player, place, x, y, hp, hp_max = self.player, self.unit.place, self.unit.x, self.unit.y, self.unit.hp, self.unit.hp_max
         leave_meadow = not self.unit.is_buildable_anywhere and self.type.is_buildable_anywhere
         consume_meadow = self.unit.is_buildable_anywhere and not self.type.is_buildable_anywhere
+        blocked_exit = self.unit.blocked_exit
         if consume_meadow:
             meadow = place.find_nearest_meadow(self.unit)
             if meadow: # should check this earlier too (OK for instant upgrades though)
@@ -395,6 +398,8 @@ class UpgradeToOrder(ProductionOrder):
                 return
         self.unit.delete()
         unit = self.type(player, place, x, y)
+        if blocked_exit:
+            unit.block(blocked_exit)
         if hp != hp_max:
             unit.hp = hp # TODO: adjust HP to prorata
         unit.notify("complete")
@@ -721,14 +726,18 @@ class BuildOrder(ComplexOrder):
         if self.target is self.unit.place or \
            self.target.place is self.unit.place:
             self.player.free_resources(self)
-            x, y = self.unit.place.find_free_space(self.type.airground_type,
+            x, _ = self.unit.place.find_free_space(self.type.airground_type,
                                                    self.target.x, self.target.y,
                                                    player=self.player)
             if x is None:
                 self.cancel()
                 self.mark_as_impossible("not_enough_space")
                 return
-            self.unit._put_building_site(self.type, self.target)
+            if self.player.check_count_limit(self.type.type_name):
+                self.unit._put_building_site(self.type, self.target)
+            else:
+                self.cancel()
+                self.mark_as_impossible("count_limit_reached")
         elif self.unit.action_target is None:
             self.move_to_or_fail(self.target)
 
@@ -771,16 +780,13 @@ class UseOrder(ComplexOrder):
                 return
             if self._target_type == "square":
                 # make sure that the target is a square
-                if not isinstance(self.target, Square):
-                    if  hasattr(self.target, "place") and isinstance(self.target.place, Square):
-                        self.target = self.target.place
-                    else:
-                        self.mark_as_impossible()
-                        return
-        elif self.type.effect_target == ["random"]:
+                if not hasattr(self.target, "x"):
+                    self.mark_as_impossible()
+                    return
+        elif self.type.effect_target == ["worldrandom"]:
             self.target = worldrandom.choice(self.player.world.squares)
-        else:
-            self.target = self.unit.place
+        elif self.type.effect_target == ["self"]:
+            self.target = self.unit
         # check cost
         if self.unit.mana < self.type.mana_cost:
             if self._group_has_enough_mana(self.type.mana_cost):
@@ -789,11 +795,6 @@ class UseOrder(ComplexOrder):
                 self.mark_as_impossible("not_enough_mana")
             return
         self.unit.notify("order_ok")
-
-    def _target_square(self):
-        if self._target_type == "square":
-            return self.target
-        return self.target.place
 
     def execute(self):
         # check if the target has disappeared
@@ -806,15 +807,9 @@ class UseOrder(ComplexOrder):
             self.mark_as_complete() # ignore silently (to save mana when giving the same order to many casters)
             return
         # move closer eventually
-        if self.type.effect_range == ["square"]:
-            if self._target_square() != self.unit.place:
-                self.move_to_or_fail(self.target)
-                return
-        elif self.type.effect_range == ["nearby"]:
-            if self._target_square() not in self.unit.place.neighbours \
-                         and self._target_square() is not self.unit.place:
-                self.move_to_or_fail(self.target)
-                return
+        if square_of_distance(self.target.x, self.target.y, self.unit.x, self.unit.y) > self.type.effect_range * self.type.effect_range:
+            self.move_to_or_fail(self.target)
+            return
         # the target is close enough, but is the target real?
         if self.type.effect[0] == "conversion" and self.target.is_memory:
             self.mark_as_impossible()
@@ -833,9 +828,12 @@ class UseOrder(ComplexOrder):
     # NOTE: replaced can_receive(t, self.player) with can_receive(t)
     # because teleportation would always win.
 
+    def teleportation_targets(self):
+        return self.unit.world.get_objects(self.unit.x, self.unit.y, self.type.effect_radius,
+                    filter=lambda x: x.player is self.player and x.is_teleportable)
+
     def teleportation_is_not_necessary(self):
-        units = [u for u in self.player.units
-                 if u.place == self.unit.place and u.is_teleportable]
+        units = self.teleportation_targets()
         types = set([u.airground_type for u in units])
         if self.target is self.unit.place:
             return True
@@ -844,16 +842,18 @@ class UseOrder(ComplexOrder):
             return True
 
     def execute_teleportation(self):
-        units = [u for u in self.player.units
-                 if u.place == self.unit.place and u.is_teleportable]
+        units = self.teleportation_targets()
         # teleport weak units after the strong ones so peasants in defensive mode don't systematically flee
         for u in sorted(units, key=lambda x: x.menace, reverse=True):
             if self.target.can_receive(u.airground_type):
                 u.move_to(self.target, None, None)
 
+    def recall_targets(self):
+        return self.unit.world.get_objects(self.target.x, self.target.y, self.type.effect_radius,
+                    filter=lambda x: x.player is self.player and x.is_teleportable)
+
     def recall_is_not_necessary(self):
-        units = [u for u in self.player.units
-                 if u.place == self.target and u.is_teleportable]
+        units = self.recall_targets()
         if not units:
             return True
         types = set([u.airground_type for u in units])
@@ -864,8 +864,7 @@ class UseOrder(ComplexOrder):
             return True
 
     def execute_recall(self):
-        units = [u for u in self.player.units
-                 if u.place == self.target and u.is_teleportable]
+        units = self.recall_targets()
         # teleport weak units after the strong ones so peasants in defensive mode don't systematically flee
         for u in sorted(units, key=lambda x: x.menace, reverse=True):
             if self.unit.place.can_receive(u.airground_type):
@@ -884,29 +883,44 @@ class UseOrder(ComplexOrder):
 
     def execute_summon(self):
         self.unit.player.lang_add_units(
-            [self.target.name] + self.type.effect[2:],
+            self.type.effect[2:],
+            target=self.target,
             decay=to_int(self.type.effect[1]),
             notify=False)
+
+    def raise_dead_targets(self):
+        return self.unit.world.get_objects(self.target.x, self.target.y, self.type.effect_radius,
+                                           filter=lambda x: isinstance(x, Corpse))
 
     def raise_dead_is_not_necessary(self):
-        return not [o for o in self.target.objects if isinstance(o, Corpse)]
+        return not self.raise_dead_targets()
 
     def execute_raise_dead(self):
+        corpses = sorted(self.raise_dead_targets(),
+                         key=lambda o: square_of_distance(self.target.x, self.target.y, o.x, o.y))
         self.unit.player.lang_add_units(
-            [self.target.name] + self.type.effect[2:],
+            self.type.effect[2:],
             decay=to_int(self.type.effect[1]),
             from_corpse=True,
+            corpses=corpses,
             notify=False)
 
+    def resurrection_targets(self):
+        return self.unit.world.get_objects(self.target.x, self.target.y, self.type.effect_radius,
+                    filter=lambda x: isinstance(x, Corpse) and x.unit.player is self.unit.player)
+
     def resurrection_is_not_necessary(self):
-        return not [o for o in self.target.objects if isinstance(o, Corpse) and o.unit.player is self.unit.player]
+        return not self.resurrection_targets()
 
     def execute_resurrection(self):
-        corpses = [o for o in self.target.objects if isinstance(o, Corpse) and o.unit.player is self.unit.player]
+        corpses = sorted(self.resurrection_targets(),
+                         key=lambda o: square_of_distance(self.target.x, self.target.y, o.x, o.y))
         for _ in range(int(self.type.effect[1])):
             if corpses:
-                c = corpses.pop()
+                c = corpses.pop(0)
                 u = c.unit
+                if not self.player.check_count_limit(u.type_name):
+                    continue
                 u.player = None
                 u.place = None
                 u.id = None # so the unit will be added to world.active_objects

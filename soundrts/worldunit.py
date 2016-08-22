@@ -3,7 +3,7 @@ import worldrandom
 from constants import MAX_NB_OF_RESOURCE_TYPES, VIRTUAL_TIME_INTERVAL, DEFAULT_MINIMAL_DAMAGE
 from definitions import rules
 from lib.log import debug, warning, exception
-from nofloat import PRECISION, square_of_distance, int_cos_1000, int_sin_1000, int_angle, int_distance
+from lib.nofloat import PRECISION, square_of_distance, int_cos_1000, int_sin_1000, int_angle, int_distance
 from worldaction import Action, AttackAction, MoveAction, MoveXYAction
 from worldentity import Entity
 from worldorders import ORDERS_DICT, GoOrder, RallyingPointOrder, BuildPhaseTwoOrder, UpgradeToOrder
@@ -31,7 +31,9 @@ class Creature(Entity):
     action_target = property(get_action_target, set_action_target)
 
     hp_max = 0
+    hp_regen = 0
     mana_max = 0
+    mana_start = 0
     mana_regen = 0
     walked = []
 
@@ -39,7 +41,6 @@ class Creature(Entity):
     time_cost = 0
     food_cost = 0
     food_provided = 0
-    need = None
     is_fleeing = False
     ai_mode = None
     can_switch_ai_mode = False
@@ -61,6 +62,7 @@ class Creature(Entity):
 
     armor = 0
     damage = 0
+    damage_level = 0
 
     basic_abilities = []
 
@@ -74,7 +76,7 @@ class Creature(Entity):
     range = None
     is_ballistic = 0
     minimal_range = 0
-    cooldown = None
+    cooldown = 0
     next_attack_time = 0
     splash = False
 
@@ -92,6 +94,8 @@ class Creature(Entity):
     presence = 1
 
     is_an_explorer = False
+
+    count_limit = 0
 
     def next_free_number(self):
         numbers = [u.number for u in self.player.units if u.type_name == self.type_name and u is not self]
@@ -140,9 +144,14 @@ class Creature(Entity):
 
         # set a player
         self.set_player(player)
+
         # stats "with a max"
         self.hp = self.hp_max
-        self.mana = self.mana_max
+        if self.mana_start > 0:
+            self.mana = self.mana_start
+        else:
+            self.mana = self.mana_max
+
         # stat defined for the whole game
         self.minimal_damage = rules.get("parameters", "minimal_damage")
         if self.minimal_damage is None:
@@ -178,8 +187,10 @@ class Creature(Entity):
             return []
         result = [self.place]
         for sq in self.place.neighbours:
+            # Blockers (walls, etc) are ignored for now because if a blocker disappears
+            # it would be necessary to update the player's perception.
             if self.height > sq.height \
-            or self.height == sq.height and self._can_go(sq.x, sq.y):
+            or self.height == sq.height and self._can_go(sq.x, sq.y, ignore_blockers=True):
                 result.append(sq)
         return result
 
@@ -220,7 +231,7 @@ class Creature(Entity):
         x, y = self._future_coords(rotation, target_d)
         return abs(rotation) + self._already_walked(x, y) * 200
 
-    def _can_go(self, x, y):
+    def _can_go(self, x, y, ignore_blockers=False):
         if self.airground_type != "ground":
             return True
         new_place = self.world.get_place_from_xy(x, y)
@@ -228,6 +239,8 @@ class Creature(Entity):
             return True
         for e in self.place.exits:
             if e.other_side.place is new_place:
+                if ignore_blockers:
+                    return True
                 if e.is_blocked(self):
                     for o in e.blockers:
                         self.player.observe(o)
@@ -288,18 +301,21 @@ class Creature(Entity):
     def _go_center(self):
         self.action_target = (self.place.x, self.place.y)
 
+    def _near_enough_to_aim(self, target):
+        # Melee units (range <= 2) shouldn't attack units
+        # on the other side of a wall.
+        if not self._can_go(target.x, target.y) \
+            and self.range <= 2 * PRECISION \
+            and not target.blocked_exit:
+                return False
+        if self.minimal_range and square_of_distance(self.x, self.y, target.x, target.y) < self.minimal_range * self.minimal_range:
+            return False
+        d = target.aim_range(self)
+        return square_of_distance(self.x, self.y, target.x, target.y) < d * d
+
     def _near_enough_to_use(self, target):
         if self.is_an_enemy(target):
-            # Melee units (range <= 2) shouldn't attack units
-            # on the other side of a wall.
-            if not self._can_go(target.x, target.y) \
-                and self.range <= 2 * PRECISION \
-                and not target.blocked_exit:
-                    return False
-            if self.minimal_range and square_of_distance(self.x, self.y, target.x, target.y) < self.minimal_range * self.minimal_range:
-                return False
-            d = target.use_range(self)
-            return square_of_distance(self.x, self.y, target.x, target.y) < d * d
+            return self._near_enough_to_aim(target)
         elif target.place is self.place:
             d = target.use_range(self)
             return square_of_distance(self.x, self.y, target.x, target.y) < d * d
@@ -345,8 +361,8 @@ class Creature(Entity):
         return isinstance(self.action, AttackAction)
 
     def update(self):
-        assert isinstance(self.hp, int)
-        assert isinstance(self.mana, int)
+        assert isinstance(self.hp, (int, long))
+        assert isinstance(self.mana, (int, long))
         assert isinstance(self.x, int)
         assert isinstance(self.y, int)
         assert isinstance(self.o, int)
@@ -380,6 +396,8 @@ class Creature(Entity):
     # slow update
 
     def regenerate(self):
+        if self.hp_regen and self.hp < self.hp_max:
+            self.hp = min(self.hp_max, self.hp + self.hp_regen)
         if self.mana_regen and self.mana < self.mana_max:
             self.mana = min(self.mana_max, self.mana + self.mana_regen)
 
@@ -422,19 +440,19 @@ class Creature(Entity):
     def heal_nearby_units(self):
         # level 1 of healing: 1 hp every 7.5 seconds
         hp = self.heal_level * PRECISION / 25
-        for p in self.player.allied:
-            for u in p.units:
-                if u.is_healable and u.place is self.place:
-                    if u.hp < u.hp_max:
-                        u.hp = min(u.hp_max, u.hp + hp)
+        allies = self.player.allied
+        units = self.world.get_objects(self.x, self.y, 6 * PRECISION,
+                filter=lambda x: x.player in allies and x.is_healable and x.hp < x.hp_max)
+        for u in units:
+            u.hp = min(u.hp_max, u.hp + hp)
 
     harm_level = 0
     harm_target_type = ()
 
     def can_harm(self, other):
-        d = self.world.harm_target_types
-        k = (self.type_name, other.type_name)
-        if k not in d:
+        try:
+            return self.world.harm_target_types[(self.type_name, other.type_name)]
+        except:
             result = True
             for t in self.harm_target_type:
                 if t == "healable" and not other.is_healable or \
@@ -444,15 +462,16 @@ class Creature(Entity):
                    t == "undead" and not other.is_undead:
                     result = False
                     break
-            d[k] = result
-        return d[k]
+            self.world.harm_target_types[(self.type_name, other.type_name)] = result
+            return result
 
     def harm_nearby_units(self):
         # level 1: 1 hp every 7.5 seconds
         hp = self.harm_level * PRECISION / 25
-        for u in self.place.objects:
-            if u.is_vulnerable and self.can_harm(u):
-                u.receive_hit(hp, self, notify=False)
+        units = self.world.get_objects(self.x, self.y, 6 * PRECISION,
+                filter=lambda x: x.is_vulnerable and self.can_harm(x))
+        for u in units:
+            u.receive_hit(hp, self, notify=False)
 
     def is_an_enemy(self, c):
         if isinstance(c, Creature):
@@ -488,8 +507,7 @@ class Creature(Entity):
             return False
         if self.range and other.place is self.place:
             return True
-        if self.place.is_near(other.place):
-            return self._near_enough_to_use(other)
+        return self._near_enough_to_aim(other)
 
 ##    def _can_be_reached_by(self, player):
 ##        for u in player.units:
@@ -522,6 +540,10 @@ class Creature(Entity):
             self.action_target = someone
             self.notify("attack") # XXX move this into set_action_target()?
             return
+        # _choose_enemy requires that self.player is not None
+        if self.player is None:
+            warning("in choose_enemy: %s.player is None", self)
+            return
         if self._choose_enemy(self.place):
             return
         for p in self.place.neighbours:
@@ -533,12 +555,8 @@ class Creature(Entity):
     def on_wounded(self, attacker, notify):
         if self.player is not None:
             self.player.observe(attacker)
-        # Why level 0 only for "wounded,type,0":
-        # maybe a single sound would be better: simpler,
-        # allowing more levels of upgrade, and examining
-        # unit upgrades in the stats is better?
         if notify:
-            self.notify("wounded,%s,%s,%s" % (attacker.type_name, attacker.id, 0))
+            self.notify("wounded,%s,%s,%s" % (attacker.type_name, attacker.id, attacker.damage_level))
         # react only if this is an external attack
         if self.player is not attacker.player and \
            attacker.is_vulnerable and \
@@ -812,11 +830,11 @@ class Unit(Creature):
         elif target.place is not self.place.world: # target is not a square
             if self.place == target.place:
                 return target
-            return self.place.shortest_path_to(target.place)
+            return self.place.shortest_path_to(target.place, self)
         else: # target is a square
             if self.place == target:
                 return None
-            return self.place.shortest_path_to(target)
+            return self.place.shortest_path_to(target, self)
 
     def die(self, attacker=None):
         self.player.nb_units_lost += 1

@@ -6,8 +6,8 @@ import string
 from constants import MAX_NB_OF_RESOURCE_TYPES
 from definitions import rules, style
 from lib.log import debug, warning
-from msgs import encode_msg, nb2msg
-from nofloat import PRECISION
+from lib.msgs import encode_msg, nb2msg
+from lib.nofloat import PRECISION
 from worldentity import NotEnoughSpaceError, Entity
 from worldresource import Corpse
 from worldupgrade import Upgrade
@@ -483,28 +483,31 @@ class Player(object):
                 n += 1
         return n
 
-    def lang_add_units(self, items, decay=0, from_corpse=False, notify=True):
-        for x in items:
-            if self.world.grid.has_key(x):
-                sq = self.world.grid[x]
+    def lang_add_units(self, items, target=None, decay=0, from_corpse=False, corpses=[], notify=True):
+        multiplicator = 1
+        for i in items:
+            if self.world.grid.has_key(i):
+                sq = self.world.grid[i]
                 multiplicator = 1
-            elif re.match("[0-9]+$", x):
-                multiplicator = int(x)
+            elif re.match("[0-9]+$", i):
+                multiplicator = int(i)
             else:
-                cls = self.world.unit_class(x)
+                cls = self.world.unit_class(i)
                 for _ in range(multiplicator):
+                    if not self.check_count_limit(i):
+                        break
                     land = None
                     if from_corpse:
-                        corpse = None
-                        for o in sq.objects:
-                            if isinstance(o, Corpse):
-                                corpse = o
-                                break
-                        if corpse is not None:
+                        if corpses:
+                            corpse = corpses.pop(0)
                             x, y = corpse.x, corpse.y
+                            sq = corpse.place
                             corpse.delete()
                         else:
                             return
+                    elif target:
+                        x, y = target.x, target.y 
+                        sq = target if target in self.world.squares else target.place
                     else:
                         x, y, land = sq.find_and_remove_meadow(cls)
                     try:
@@ -586,8 +589,15 @@ class Player(object):
                 else:
                     p.defeat()
 
+    def _quit_alliance(self):
+        for ally in self.allied:
+            if ally is not self:
+                ally.allied.remove(self)
+        self.allied =[self]
+
     def defeat(self, force_quit=False):
         self.has_been_defeated = True
+        self._quit_alliance()
         self.store_score()
         if self in self.world.true_players():
             self.broadcast_to_others_only([self.name, 4311]) # "defeated"
@@ -655,11 +665,11 @@ class Player(object):
     def on_unit_flee(self, unit):
         pass
 
-    def is_an_enemy(self, object):
-        if isinstance(object, Player):
-            return object not in self.allied
-        elif hasattr(object, "player"):
-            return self.is_an_enemy(object.player)
+    def is_an_enemy(self, o):
+        if isinstance(o, Player):
+            return o not in self.allied
+        elif hasattr(o, "player"):
+            return self.is_an_enemy(o.player)
         else:
             return False
 
@@ -687,12 +697,32 @@ class Player(object):
                 n += 1
         return n
 
+    def future_count(self, type_name):
+        result = 0
+        for u in self.units:
+            if u.type_name == type_name or \
+                u.type_name == "buildingsite" and u.type.type_name == type_name: 
+                result += 1
+            for o in u.orders:
+                # don't count the "build" orders because they might concern the same building
+                if o.keyword in ("train", "upgrade_to") and o.type.type_name == type_name:
+                    result += 1
+        return result
+
+    def check_count_limit(self, type_name):
+        t = self.world.unit_class(type_name)
+        if t.count_limit == 0:
+            return True
+        if self.future_count(t.type_name) >= t.count_limit:
+            return False
+        return True
+
     def nearest_warehouse(self, place, resource_type):
         warehouses = []
         for p in self.allied:
             for u in p.units:
                 if resource_type in u.storable_resource_types:
-                    d = place.shortest_path_distance_to(u.place)
+                    d = place.shortest_path_distance_to(u.place, self)
                     if d == 0:
                         return u
                     if d is not None:

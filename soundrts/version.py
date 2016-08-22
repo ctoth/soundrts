@@ -7,17 +7,16 @@ import os
 import res
 
 
-VERSION = "1.2-a10-dev"
+VERSION = "1.2-a11-dev"
+IS_DEV_VERSION = VERSION.endswith("-dev")
 
-if VERSION.endswith("-dev"):
-    import collision
-    collision.debug_mode = True
 
 def _remove_dev(s):
     if s.endswith("-dev"):
         return s[:-4]
     else:
         return s
+
 
 def compatibility_version():
 # Includes a hash of rules.txt.
@@ -26,8 +25,13 @@ def compatibility_version():
 # because it would require to add an internal version for every file.
 # (a bit complicated for the moment, and not as useful as checking rules.txt)
 # TODO: use Git to include a version in every *.pyc? (check other projects)
-    return _remove_dev(VERSION) + "-" + md5(res.get_text("rules", append=True) +
-                           res.get_text("ai", append=True)).hexdigest()
+    return _remove_dev(VERSION) + "-" + rules_hash()
+
+
+def rules_hash():
+    rules_and_ai = res.get_text_file("rules", append=True) + res.get_text_file("ai", append=True)
+    return md5(rules_and_ai).hexdigest()
+
 
 # VERSION_FOR_BUG_REPORTS helps ignoring automatic bug reports related to
 # modified code.

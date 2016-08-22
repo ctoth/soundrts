@@ -2,14 +2,16 @@ import os.path
 import random
 import time
 
-import config
+import options
 from constants import NEWLINE_REPLACEMENT, SPACE_REPLACEMENT, VIRTUAL_TIME_INTERVAL
 from definitions import Style
 from lib.log import debug, info, warning
-from msgs import insert_silences, nb2msg
+from lib.msgs import insert_silences, nb2msg
 from paths import TMP_PATH
 import res
+
 import version
+DEBUG_MODE = version.IS_DEV_VERSION
 
 
 class _State(object):
@@ -41,12 +43,8 @@ class OrganizingAGame(_State):
                         "faction")
 
     def send_menu(self, client):
-        client.push("map_title %s\n" % " ".join(map(str, client.game.scenario.title)))
-        client.push("map_factions %s\n" % " ".join(client.game.scenario.factions))
-        client.push("map_nb_players %s %s\n" % (client.game.scenario.nb_players_min,
-                                                client.game.scenario.nb_players_max))
         client.push("available_players %s\n" % " ".join(
-            [p.login for p in client.server.available_players()
+            [p.login for p in client.server.available_players(client)
              if p not in client.game.guests]))
         client.push("registered_players %s\n" % " ".join(["%s,%s,%s" % (p.login, p.alliance, p.faction) for p in client.game.players]))
         client.push("update_menu\n")
@@ -57,8 +55,6 @@ class WaitingForTheGameToStart(_State):
     allowed_commands = ("unregister", "say", "faction")
 
     def send_menu(self, client):
-        client.push("map_title %s\n" % " ".join(map(str, client.game.scenario.title)))
-        client.push("map_factions %s\n" % " ".join(client.game.scenario.factions))
         client.push("registered_players %s\n" % " ".join(["%s,%s,%s" % (p.login, p.alliance, p.faction) for p in client.game.players]))
         client.push("update_menu\n")
 
@@ -88,6 +84,8 @@ class _Computer(object):
     def send_menu(self):
         pass
 
+    def is_compatible(self, client):
+        return True
 
 class Game(object):
 
@@ -116,7 +114,7 @@ class Game(object):
         return nb_turns
 
     def _start(self):
-        if config.record_games:
+        if options.record_games:
             self.f = open(os.path.join(TMP_PATH, "game%s-%s.txt" % (self.id, int(time.time()))), "w")
         info("start game %s on map %s with players %s",
              self.id,
@@ -135,20 +133,19 @@ class Game(object):
         # send first orders (if menu, the advance in the delay isn't lost)
         delay = self._delay()
         for client in self.human_players:
-            client.push("start_game %s %s %s %s %s\n" %
+            client.push("start_game %s %s %s %s\n" %
                         (";".join(["%s,%s,%s" % (p.login_to_send(), p.alliance,
                                                  p.faction)
                                    for p in self.players]),
                          client.login,
                          seed,
                          self.speed,
-                         self.scenario.pack(),
                          )
                         )
             for _ in range(delay):
                 self.orders(client, ["update" + NEWLINE_REPLACEMENT, None])
             client.state = Playing()
-        if config.record_games:
+        if options.record_games:
             self.f.write("start_game %s %s %s\n" %
                         (";".join(["%s,%s" % (p.login_to_send(), p.alliance)
                                    for p in self.players]),
@@ -205,7 +202,7 @@ class Game(object):
              self.time, self.get_nb_minutes())
         self.cancel()
         self.server.log_status()
-        if config.record_games:
+        if options.record_games:
             self.f.close()
 
     _nb_allowed_alerts = 1
@@ -216,7 +213,7 @@ class Game(object):
             and self._nb_allowed_alerts > 0:
             time_strings = [s.split("-", 1) for s in check_strings]
             if time_strings.count(time_strings[0]) != len(time_strings):
-                if version.VERSION.endswith("-dev"):
+                if DEBUG_MODE:
                     info("minor mismatch in game %s at %s", self.id, self.time)
                 return
             warning("mismatch in game %s at %s: %s",
@@ -259,8 +256,9 @@ class Game(object):
                     p.push("all_orders %s\n" % all_orders)
                 else:
                     debug("don't send all_orders to %s", p.login)
-            if log_this and config.record_games:
-                self.f.write("%s: all_orders %s\n" % (self.time, all_orders.replace(NEWLINE_REPLACEMENT, ";").replace(SPACE_REPLACEMENT, ",").replace("update;", "")))
+            if log_this and options.record_games:
+                self.f.write("%s: all_orders %s\n" % (self.time, all_orders.replace(NEWLINE_REPLACEMENT, ";").replace(SPACE_REPLACEMENT, ",").replace("update;", 
+"")))
             self.time += 1
             self._timeout_reference = None
 
@@ -287,7 +285,7 @@ class Game(object):
         player = self.players[int(player_index)]
         player.faction = faction
         style = Style()
-        style.load(res.get_text("ui/style", append=True, locale=True))
+        style.load(res.get_text_file("ui/style", append=True, localize=True))
         faction_name = style.get(player.faction, 'title')
         self.broadcast([player.login, ] + faction_name)
 

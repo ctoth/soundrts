@@ -49,14 +49,27 @@ unit properties
 
 Note: a unit can also be a building.
 
+count_limit
+===========
+
+New in SoundRTS 1.2 alpha 10.
+
+`count_limit <value>`
+
+The default value is 0 (no limit).
+When the limit is active, a unit type which reaches the limit cannot be trained,
+built, summoned, raised, resurrected, or added by a trigger (add_unit).
+Conversion is unaffected though.
+
 is_ballistic
 ============
 
 New in SoundRTS 1.2 alpha 9.
+Modified in SoundRTS 1.2 alpha 10.
 
 `is_ballistic 1`
 
-The unit can attack units located in an adjacent square if their altitude is lower. Units having special range (like catapults) do not need this property because they can attack units in an adjacent square, even if the altitude of the target is higher.
+The unit have a range bonus if the altitude of the target is lower.
 
 is_teleportable
 ===============
@@ -66,6 +79,24 @@ New in SoundRTS 1.2 alpha 9.
 `is_teleportable 1`
 
 The unit (or building) is affected by the teleportation effect or the recall effect.
+
+hp_regen
+========
+
+New in SoundRTS 1.2 alpha 11
+
+`hp_regen <hit points regeneration rate>`
+
+For example, with "hp_regen 0.15", the unit regains 0.15 hit points per second.
+
+mana_start
+==========
+
+New in SoundRTS 1.2 alpha 10.
+
+`mana_start 50`
+
+In the example, the unit will start with 50 mana instead of mana_max. The default value for mana_start is 0. If mana_start is 0 or negative, mana_max is used instead.
 
 provides_survival
 =================
@@ -225,15 +256,22 @@ effect_range
 
 Determines the distance between the caster and the target.
 
-Default value: square
+Default value: 6
 
-Possible values:
-
-* square: they must be in the same square
-* nearby: they must be in an adjacent square or in the same square
-* anywhere: any distance is allowed
+Special value: inf (infinite)
 
 If the current distance is greater than the required distance, the caster will try to move to a closer place and use the ability from there.
+
+effect_radius
+=============
+
+`effect_radius <distance>`
+
+Determines the radius of the area of effect. The center of the area is the target.
+
+Default value: 6
+
+Special value: inf (infinite)
 
 style
 -----

@@ -189,7 +189,35 @@ To block an exit (path, bridge), you can either:
 - build a wall on it;
 - build any building on it.
 
-A unit or a gate will let your units pass unless there are enemies nearby.
+A unit or a gate will let friendly units pass.
+
+Zoom mode (experimental)
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+New in 1.2 alpha 10.
+
+F8: enter or exit zoom mode. Escape exits zoom mode too.
+
+The square in divided in 3 x 3 smaller squares. A zoomed square can be used as a target for an order (go to, essentially).
+
+Recallable control groups
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+New in 1.2 alpha 10.
+
+Control + 6, 7, 8 or 9: sets group 6, 7, 8 or 9 with the currently controlled units
+
+Shift + 6, 7, 8 or 9: extends group 6, 7, 8 or 9 with the currently controlled units
+
+6, 7, 8 or 9: recalls group 6, 7, 8 or 9 
+
+In the menus
+^^^^^^^^^^^^
+
+The arrow keys work too : Up and Down to select, Right to confirm, Left to cancel.
+
+Press any letter to select the next item starting with this letter.
+Press shift + any letter to select the previous item starting with this letter.
 
 Other commands
 ^^^^^^^^^^^^^^
@@ -204,8 +232,6 @@ Control + Space: make the game go in first person mode. Escape: go back to map m
 Home/End, +/- of the numeric keyboard: increase/decrease the general sound volume.
 Control Home/End, control +/- of the numeric keyboard: increase/decrease the voice relative volume.
 
-In the menus, the arrow keys work too : Up and Down to select, Right to confirm, Left to cancel.
-
 F3: say time
 Control F3: minute bell on/off (off by default)
 
@@ -216,9 +242,6 @@ Alt + G reselects the previously given order and validate it if no additional pa
 Since SoundRTS 1.1 alpha 3, Alt + A is the same than Alt + G.
 
 Backquote (the key below Escape): console command (only in single player mode). The only useful commands at the moment are add_units (to get units or buildings instantly) and victory (to win, for example to skip a chapter). Example of a "add_units" command: "add_units a1 100 archer". New in SoundRTS 1.2 alpha 9.
-
-F8 (experimental): enter or exit zoom mode. Escape exits zoom mode too. New in SoundRTS 1.2 alpha 10. The square in divided in 3 x 3 smaller squares. A zoomed square can be used as a target for an order (go to, essentially).
-
 
 4. Multiplayer games
 --------------------
@@ -237,7 +260,7 @@ Tip: when you are waiting for players online, you can launch SoundRTS a second t
 
 You can chat in the server lobby, in the pre-game room, and during the game. The organizer of the game is temporarily unavailable during the selection of the map and of the game speed though.
 
-To say something to everybody in the same room or game, press F7 (pressing S also works except during a game), type your message, and press enter.
+To say something to everybody in the same room or game, press F7, type your message, and press enter.
 
 Another option is to use Skype (or any similar software) if you know the other players.
 
@@ -351,6 +374,7 @@ User folder
 ^^^^^^^^^^^
 
 The user folder contains the game settings, the custom maps and mods, and the temporary folder.
+An easy way to find the user folder is to open it from the options menu.
 
 If the main folder contains a folder called "user", this folder will be the user folder.
 If the "user" folder doesn't exist, the user folder will be located depending on the operating system:

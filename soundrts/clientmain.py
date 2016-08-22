@@ -1,4 +1,5 @@
 from lib import log
+from lib.log import exception, warning
 from version import VERSION_FOR_BUG_REPORTS
 from paths import CLIENT_LOG_PATH
 log.set_version(VERSION_FOR_BUG_REPORTS)
@@ -10,7 +11,6 @@ import locale
 try:
     locale.setlocale(locale.LC_ALL, '')
 except:
-    from lib.log import warning
     warning("couldn't set locale")
 
 import os
@@ -18,6 +18,7 @@ import pickle
 import sys
 import time
 import urllib
+import webbrowser
 
 from clientmedia import voice, init_media, close_media
 from clientmenu import Menu, input_string, END_LOOP
@@ -26,21 +27,17 @@ from clientversion import revision_checker
 import config
 from constants import MAIN_METASERVER_URL
 from definitions import style
-from game import TrainingGame, ReplayGame, reload_all
-from lib.log import exception
-from multimaps import worlds_multi
-from msgs import nb2msg
-from package import get_packages, get_all_packages_paths
-from paths import REPLAYS_PATH, SAVE_PATH
+from game import TrainingGame, ReplayGame
+from lib.msgs import nb2msg
+from paths import CONFIG_DIR_PATH, REPLAYS_PATH, SAVE_PATH
 import res
-from singlemaps import campaigns
 import stats
-from version import compatibility_version
+from version import VERSION
 
 
 _ds = open("cfg/default_servers.txt").readlines()
 _ds = [_x.split() for _x in _ds]
-DEFAULT_SERVERS = [" ".join(["0"] + _x[:1] + [compatibility_version()] + _x[1:]) for _x in _ds]
+DEFAULT_SERVERS = [" ".join(["0"] + _x[:1] + [VERSION] + _x[1:]) for _x in _ds]
 SERVERS_LIST_HEADER = "SERVERS_LIST"
 SERVERS_LIST_URL = MAIN_METASERVER_URL + "servers.php?header=%s&include_ports=1" % SERVERS_LIST_HEADER
 
@@ -70,7 +67,7 @@ class Application(object):
                 warning("line not recognized from the metaserver: %s", s)
                 continue
             nb += 1
-            if version == compatibility_version():
+            if version == VERSION:
                 menu.append([login, 4073, login], (connect_and_play, ip, port))
         menu.title = nb2msg(len(menu.choices)) + [4078] + nb2msg(nb) + [4079]
         menu.append([4075, 4076], None)
@@ -123,7 +120,7 @@ class Application(object):
         self.menu.update_menu(self.build_training_menu_after_map())
 
     def training_menu_after_map(self, m):
-        style.load(res.get_text("ui/style", append=True, locale=True)) # XXX: won't work with factions defined in the map
+        style.load(res.get_text_file("ui/style", append=True, localize=True)) # XXX: won't work with factions defined in the map
         self.players = [config.login]
         self.factions = ["random_faction"]
         self.map = m
@@ -162,7 +159,7 @@ class Application(object):
 
     def training_menu(self):
         menu = Menu([4055], remember="mapmenu")
-        for m in worlds_multi():
+        for m in res.worlds_multi():
             menu.append(m.title, (self.training_menu_after_map, m))
         menu.append([4041], None)
         menu.run()
@@ -178,41 +175,6 @@ class Application(object):
         menu.append([4041], None)
         menu.run()
 
-    def manage_packages(self):
-
-        def add():
-            menu = Menu([4325])
-            for p in get_packages():
-                if not p.is_active:
-                    menu.append([p.name], (p.add, voice))
-            menu.append([4118], None)
-            menu.run()
-
-        def deactivate():
-            menu = Menu([4326])
-            for p in get_packages():
-                if p.is_active:
-                    menu.append([p.name], p.deactivate)
-            menu.append([4118], None)
-            menu.run()
-
-        def update():
-            menu = Menu([4327])
-            for p in get_packages():
-                if p.is_active:
-                    menu.append([p.name], (p.update, voice))
-            menu.append([4118], None)
-            menu.run()
-
-        menu = Menu([4324], [
-            ([4325], add),
-            ([4326], deactivate),
-            ([4327], update),
-            ([4076], END_LOOP),
-            ])
-        menu.loop()
-        reload_all()
-
     def modify_login(self):
         login = input_string([4235, 4236], "^[a-zA-Z0-9]$") # type your new
                                         # login ; use alphanumeric characters
@@ -225,50 +187,11 @@ class Application(object):
             config.login = login
             config.save()
 
-    def modify_default_mods(self):
-
-        def available_mods():
-            result = []
-            for path in get_all_packages_paths():
-                mods_path = os.path.join(path, "mods")
-                for mod in os.listdir(mods_path):
-                    if os.path.isdir(os.path.join(mods_path, mod)) \
-                       and mod not in result and mod not in mods:
-                        result.append(mod)
-            return result
-
-        def select_next_mod(parent):
-
-            def add_mod(mod):
-                if mod not in mods:
-                    mods.append(mod)
-                    parent.title = mods
-
-            menu = Menu([4320] + mods)
-            for mod in available_mods():
-                menu.append([mod], (add_mod, mod))
-            menu.append([4118], None)
-            menu.run()
-
-        def save():
-            previous_mods = config.mods
-            config.config_mods = ",".join(mods)
-            config.mods = config.config_mods
-            config.save()
-            if config.mods != previous_mods:
-                reload_all()
-            return END_LOOP
-
-        mods = []
-        menu = Menu([4321]) # the list is empty
-        menu.append([4320], (select_next_mod, menu))
-        menu.append([4096], save)
-        menu.append([4098], END_LOOP)
-        menu.loop()
-
     def main(self):
+        def open_user_folder():
+            webbrowser.open(CONFIG_DIR_PATH)
         single_player_menu = Menu([4030],
-            [(c.title, c) for c in campaigns()] +
+            [(c.title, c) for c in res.campaigns()] +
             [
             ([4055], self.training_menu),
             ([4113], self.restore_game),
@@ -281,24 +204,58 @@ class Application(object):
                             "admin_only no_metaserver")),
             ([4048], None),
             ])
+        def set_and_launch_mod(mods):
+            config.mods = mods
+            config.save()
+            res.set_mods(config.mods)
+            main_menu().loop() # update the menu title
+            raise SystemExit
+        def mods_menu():
+            mods_menu = Menu(["Mods"])
+            mods_menu.append([0], (set_and_launch_mod, ""))
+            for mod in res.available_mods():
+                mods_menu.append([mod], (set_and_launch_mod, mod))
+            mods_menu.append([4118], END_LOOP)
+            mods_menu.run()
+            return END_LOOP
+        def set_and_launch_soundpack(soundpacks):
+            config.soundpacks = soundpacks
+            config.save()
+            res.set_soundpacks(config.soundpacks)
+            main_menu().loop() # update the menu title
+            raise SystemExit
+        def soundpacks_menu():
+            soundpacks_menu = Menu(["Soundpacks"])
+            soundpacks_menu.append([0], (set_and_launch_soundpack, ""))
+            for soundpack in res.available_soundpacks():
+                soundpacks_menu.append([soundpack], (set_and_launch_soundpack, soundpack))
+            soundpacks_menu.append([4118], END_LOOP)
+            soundpacks_menu.run()
+            return END_LOOP
         options_menu = Menu([4086], [
             ([4087], self.modify_login),
-            ([4319], self.modify_default_mods),
-            [[4323], self.manage_packages],
+            (("Mods", ), mods_menu),
+            (("Soundpacks", ), soundpacks_menu),
+            ([4336], open_user_folder),
             ([4118], END_LOOP),
             ])
-        main_menu = Menu([4029, 4030], [
+        def main_menu():
+            import version
+            return Menu(["SoundRTS %s %s %s," % (version.VERSION, res.mods, res.soundpacks), 4030], [
             [[4031, 4032], single_player_menu.loop],
             [[4033, 4034], self.multiplayer_menu],
             [[4035, 4036], server_menu],
             [[4315], self.replay_menu],
             [[4037, 4038], options_menu.loop],
+            [[4337], launch_manual],
             [[4041, 4042], END_LOOP],
             ])
+        def launch_manual():
+            webbrowser.open(os.path.realpath("doc/help-index.htm"))
         if "connect_localhost" in sys.argv:
             connect_and_play()
         else:
-            main_menu.loop()
+            main_menu().loop()
 
 
 def main():

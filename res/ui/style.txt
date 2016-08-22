@@ -10,6 +10,7 @@ production_deferred 142
 cannot_build_here 4204
 not_enough_mana 4252
 not_enough_space 1027
+count_limit_reached 4335
 
 ; miscellaneous parameters
 
@@ -406,10 +407,18 @@ is_a building
 title 4331
 shortcut a
 
+def massive_wall
+is_a building
+title 4338
+
 def gate
 is_a building
 title 4332
 shortcut g
+
+def massive_gate
+is_a building
+title 4339
 
 ; units
 

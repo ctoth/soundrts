@@ -4,13 +4,14 @@ import time
 import pygame
 
 from clientgamenews import must_be_said
-from clientmedia import voice, distance, psounds, get_fullscreen
+from clientmedia import voice, sounds, get_fullscreen
 from constants import FOOTSTEP_LIMIT  
 from definitions import style
 from lib.log import warning, exception
-from msgs import nb2msg
-from nofloat import PRECISION
+from lib.msgs import nb2msg
+from lib.nofloat import PRECISION
 from worldunit import BuildingSite
+from lib.sound import psounds, distance
 
 
 def compute_title(type_name):
@@ -46,6 +47,19 @@ class EntityView(object):
         self.interface = interface
         self.model = model
         self.footstep_interval = .5 + random.random() * .2 # to avoid strange synchronicity of footsteps when several units are walking
+
+    @property
+    def when_moving_through(self):
+        return style.get(self.model.type_name, "when_moving_through")
+
+    @property
+    def is_an_exit(self):
+        return style.has(self.model.type_name, "when_moving_through")
+
+    def is_in(self, place):
+        # For the interface, a blocker is also on the other side of the exit.
+        return self.place is place or \
+            getattr(self, "blocked_exit", None) and self.blocked_exit.other_side.place is place 
 
     def __getattr__(self, name):
         v = getattr(self.model, name)
@@ -181,10 +195,11 @@ class EntityView(object):
 
     def is_a_useful_target(self):
         # (useful for a worker)
-        # resource deposits, building lands, damaged repairable units or buildings
+        # resource deposits, building lands, damaged repairable units or buildings, blockable exits
         return self.qty > 0 or \
                self.is_a_building_land or \
-               self.is_repairable and self.hp < self.hp_max
+               self.is_repairable and self.hp < self.hp_max or \
+               self.is_an_exit
 
     def shape(self):
         shape = style.get(self.type_name, "shape", warn_if_not_found=False)
@@ -327,7 +342,7 @@ class EntityView(object):
         if self.loop_noise is not None:
             if self.loop_source is None:
                 # same priority level as "footstep", to avoid unpleasant interruptions
-                self.loop_source = psounds.play_loop(self.loop_noise, self.loop_volume, self.x, self.y, -10)
+                self.loop_source = psounds.play_loop(sounds.get_sound(self.loop_noise), self.loop_volume, self.x, self.y, -10)
             else :
                 self.loop_source.move(self.x, self.y)
         else:
@@ -423,7 +438,7 @@ class EntityView(object):
 
     def launch_event(self, sound, volume=1, priority=0, limit=0, ambient=False):
         if self.place is self.interface.place:
-            return psounds.play(sound, volume, self.x, self.y, priority, limit, ambient)
+            return psounds.play(sounds.get_sound(sound), volume, self.x, self.y, priority, limit, ambient)
 
     def launch_alert(self, sound):
         self.interface.launch_alert(self.place, sound)

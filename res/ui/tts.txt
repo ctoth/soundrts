@@ -350,7 +350,7 @@
 4254	horses speed
 4255	define the rally point for the new units
 4256	gathered
-4257	agressive computer
+4257	aggressive computer
 4258	quiet computer
 4259	has just logged out
 4260	on the server of
@@ -464,8 +464,8 @@
 
 4323 packages
 4324 packages menu
-4325 add a package
-4326 deactivate a package
+4325 install a package
+4326 uninstall a package
 4327 update a package
 4328 Downloading...
 4329 Extracting...
@@ -476,3 +476,11 @@
 4333 block
 
 4334 random faction
+
+4335 Count limit reached
+
+4336 open user folder
+4337 documentation
+
+4338 massive wall
+4339 massive gate
